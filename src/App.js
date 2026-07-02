@@ -1,66 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 
-// Supabase 연동
-const SUPABASE_URL = "https://pwxekgmtholibyzwbhhu.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3eGVrZ210aG9saWJ5endiaGh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTk2NDgsImV4cCI6MjA5ODQ3NTY0OH0.nb5zenjHB1mgEEgk9qGD_EZWMfSIhj24X3D_yZHxP6I";
-
-const sb = {
-  async getAll(table) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-    });
-    const rows = await res.json();
-    return rows.map(r => r.data);
-  },
-  async upsert(table, item) {
-    await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id: item.id, data: item })
-    });
-  },
-  async delete(table, id) {
-    await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
-      method: "DELETE",
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-    });
-  }
-};
-
-// Supabase 기반 상태 관리
-function useSupabaseState(table, initial) {
-  const [value, setValue] = useState(initial);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    sb.getAll(table).then(data => {
-      if (data && data.length > 0) setValue(data);
-      setLoaded(true);
-    }).catch(() => setLoaded(true));
-  }, [table]);
-
-  const setAndSync = async (val) => {
-    setValue(prev => {
-      const next = typeof val === "function" ? val(prev) : val;
-      // 변경된 항목 upsert, 삭제된 항목 delete
-      const prevIds = new Set(prev.map(x => x.id));
-      const nextIds = new Set(next.map(x => x.id));
-      // 새로 추가되거나 변경된 항목
-      next.forEach(item => sb.upsert(table, item));
-      // 삭제된 항목
-      prev.forEach(item => { if (!nextIds.has(item.id)) sb.delete(table, item.id); });
-      return next;
-    });
-  };
-
-  return [value, setAndSync, loaded];
-}
-
 const PLATFORMS = ["포이즌", "크림", "기타"];
 const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320];
 const PAYMENT_TYPES = ["카드", "페이", "계좌이체", "현금", "기타"];
@@ -72,6 +11,21 @@ const SETTLEMENT_PLATFORMS = ["포이즌","크림","기타"];
 
 function generateId() { return Math.random().toString(36).substr(2,9); }
 function formatNum(n) { return Number(n||0).toLocaleString("ko-KR"); }
+
+function useLocalStorage(key, initial) {
+  const [value, setValue] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; }
+    catch { return initial; }
+  });
+  const setAndSave = (val) => {
+    setValue(prev => {
+      const next = typeof val === "function" ? val(prev) : val;
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  return [value, setAndSave];
+}
 
 function exportToCSV(data, filename) {
   const BOM = "\uFEFF";
@@ -154,15 +108,14 @@ function EditModal({ title, children, onSave, onDelete, onClose }) {
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
-  const [products, setProducts, prodLoaded] = useSupabaseState("products", []);
-  const [sales, setSales, salesLoaded] = useSupabaseState("sales", []);
-  const [purchases, setPurchases, purchLoaded] = useSupabaseState("purchases", []);
-  const [otherIncomes, setOtherIncomes] = useSupabaseState("other_incomes", []);
-  const [expenses, setExpenses] = useSupabaseState("expenses", []);
-  const [settlements, setSettlements] = useSupabaseState("settlements", []);
-  const [returns, setReturns] = useSupabaseState("returns", []);
-  const [trash, setTrash] = useSupabaseState("trash", []);
-  const loaded = prodLoaded && salesLoaded && purchLoaded;
+  const [products, setProducts] = useLocalStorage("erp_products", []);
+  const [sales, setSales] = useLocalStorage("erp_sales", []);
+  const [purchases, setPurchases] = useLocalStorage("erp_purchases", []);
+  const [otherIncomes, setOtherIncomes] = useLocalStorage("erp_other_incomes", []);
+  const [expenses, setExpenses] = useLocalStorage("erp_expenses", []);
+  const [settlements, setSettlements] = useLocalStorage("erp_settlements", []);
+  const [returns, setReturns] = useLocalStorage("erp_returns", []);
+  const [trash, setTrash] = useLocalStorage("erp_trash", []);
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
   const [newReturn, setNewReturn] = useState({...emptyReturn});
@@ -223,18 +176,18 @@ export default function App() {
   const handleImportData = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (ev) => {
+    reader.onload = (ev) => {
       try {
         const d = JSON.parse(ev.target.result);
-        if (d.products) await setProducts(d.products);
-        if (d.sales) await setSales(d.sales);
-        if (d.purchases) await setPurchases(d.purchases);
-        if (d.otherIncomes) await setOtherIncomes(d.otherIncomes);
-        if (d.expenses) await setExpenses(d.expenses);
-        if (d.settlements) await setSettlements(d.settlements);
-        if (d.returns) await setReturns(d.returns);
-        if (d.trash) await setTrash(d.trash);
-        alert("불러오기 완료! 모든 기기에서 동기화됩니다 😄");
+        if (d.products) setProducts(d.products);
+        if (d.sales) setSales(d.sales);
+        if (d.purchases) setPurchases(d.purchases);
+        if (d.otherIncomes) setOtherIncomes(d.otherIncomes);
+        if (d.expenses) setExpenses(d.expenses);
+        if (d.settlements) setSettlements(d.settlements);
+        if (d.returns) setReturns(d.returns);
+        if (d.trash) setTrash(d.trash);
+        alert("불러오기 완료!");
       } catch { alert("파일 오류"); }
     };
     reader.readAsText(file);
@@ -391,15 +344,6 @@ export default function App() {
   const selectedProdP = products.find(p => p.id===newPurchase.productId);
 
   // 수정 모드 공통
-
-  if (!loaded) return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#f3f4f6",gap:16}}>
-      <div style={{fontSize:24,fontWeight:800,color:"#6d28d9"}}>RESELL ERP</div>
-      <div style={{fontSize:14,color:"#6b7280"}}>데이터 불러오는 중...</div>
-      <div style={{width:40,height:40,border:"4px solid #e5e7eb",borderTop:"4px solid #6d28d9",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
 
   return (
     <div style={{fontFamily:"'-apple-system,BlinkMacSystemFont,sans-serif'",background:"#f3f4f6",minHeight:"100vh",color:"#111"}}>

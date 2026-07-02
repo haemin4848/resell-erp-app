@@ -57,6 +57,39 @@ const emptySettlement = { platform:"포이즌", amount:"", date:new Date().toISO
 const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"" };
 
 // 5번: EditModal을 App 밖에 정의해야 리렌더링시 커서 안 날아감
+function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:13,color:"#6b7280",marginBottom:5,fontWeight:500}}>사이즈 선택 {showQty && "(수량도 입력 가능)"}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+        {SIZES.map(s => (
+          <button key={s} onClick={() => toggleSize(s, setter)}
+            style={{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",background:data.sizes[s]!==undefined?"#6d28d9":"#f3f4f6",color:data.sizes[s]!==undefined?"#fff":"#374151",fontSize:12,fontWeight:data.sizes[s]!==undefined?700:400}}>
+            {s}
+          </button>
+        ))}
+      </div>
+      {showQty && Object.keys(data.sizes).length>0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {Object.keys(data.sizes).sort((a,b)=>a-b).map(size => (
+            <div key={size} style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:12,color:"#9ca3af",minWidth:28}}>{size}</span>
+              <input type="number" min="1" value={data.sizes[size]}
+                onChange={e => setSizeQty(size, e.target.value, setter)}
+                style={{width:55,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",color:"#111",fontSize:13,boxSizing:"border-box"}} />
+            </div>
+          ))}
+        </div>
+      )}
+      {Object.keys(data.sizes).length>0 && (
+        <div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"#f8f9fa",fontSize:11,color:"#6b7280"}}>
+          선택: {Object.keys(data.sizes).sort((a,b)=>a-b).map(s=>`${s}mm×${data.sizes[s]}`).join(", ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditModal({ title, children, onSave, onDelete, onClose }) {
   return (
     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
@@ -211,10 +244,6 @@ export default function App() {
     return inQty - outQty;
   };
 
-  // 상품별 전체 사이즈 재고 계산
-  // calcStock으로 직접 계산
-  };
-
   // 3번: 품번으로 자동 검색
   const handleCodeInput = (code, type) => {
     const found = products.find(p => p.code && p.code.toLowerCase()===code.toLowerCase());
@@ -313,40 +342,7 @@ export default function App() {
   const selectedProd = products.find(p => p.id===newSale.productId);
   const selectedProdP = products.find(p => p.id===newPurchase.productId);
 
-  // 사이즈 선택 UI (복수+수량)
-  const SizePicker = ({ data, setter, showQty=false }) => (
-    <div style={{marginBottom:14}}>
-      <div style={lbl}>사이즈 선택 {showQty && "(수량도 입력 가능)"}</div>
-      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-        {SIZES.map(s => (
-          <button key={s} onClick={() => toggleSize(s, setter)}
-            style={{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",background:data.sizes[s]!==undefined?"#6d28d9":"#f3f4f6",color:"#fff",fontSize:12,fontWeight:data.sizes[s]!==undefined?700:400}}>
-            {s}
-          </button>
-        ))}
-      </div>
-      {showQty && Object.keys(data.sizes).length>0 && (
-        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-          {Object.keys(data.sizes).sort((a,b)=>a-b).map(size => (
-            <div key={size} style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{fontSize:12,color:"#9ca3af",minWidth:28}}>{size}</span>
-              <input type="number" min="1" value={data.sizes[size]}
-                onChange={e => setSizeQty(size, e.target.value, setter)}
-                style={{...inp,width:55,padding:"5px 8px"}} />
-            </div>
-          ))}
-        </div>
-      )}
-      {Object.keys(data.sizes).length>0 && (
-        <div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"#f8f9fa",fontSize:11,color:"#6b7280"}}>
-          선택: {Object.keys(data.sizes).sort((a,b)=>a-b).map(s=>`${s}mm×${data.sizes[s]}`).join(", ")}
-        </div>
-      )}
-    </div>
-  );
-
-  // 수정 모달 공통
-
+  // 수정 모드 공통
 
   return (
     <div style={{fontFamily:"'-apple-system,BlinkMacSystemFont,sans-serif'",background:"#f3f4f6",minHeight:"100vh",color:"#111"}}>
@@ -510,7 +506,7 @@ export default function App() {
                     <div key={f.key}><div style={lbl}>{f.label}</div><input value={newProduct[f.key]} onChange={e=>setNewProduct(prev=>({...prev,[f.key]:e.target.value}))} style={inp}/></div>
                   ))}
                 </div>
-                <SizePicker data={newProduct} setter={setNewProduct} showQty={false}/>
+                <SizePicker data={newProduct} setter={setNewProduct} showQty={false} toggleSize={toggleSize} setSizeQty={setSizeQty}/>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={addProduct} style={btn1}>저장</button>
                   <button onClick={()=>{setShowAddProduct(false);setNewProduct({...emptyProduct,sizes:{}});}} style={btn2}>취소</button>
@@ -539,7 +535,7 @@ export default function App() {
                   <div><div style={lbl}>상품명 *</div><input value={editingProduct.name||""} onChange={e=>setEditingProduct(p=>({...p,name:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>발행가 (원)</div><input value={editingProduct.releasePrice||""} onChange={e=>setEditingProduct(p=>({...p,releasePrice:e.target.value}))} style={inp}/></div>
                 </div>
-                <SizePicker data={editingProduct} setter={setEditingProduct} showQty={false}/>
+                <SizePicker data={editingProduct} setter={setEditingProduct} showQty={false} toggleSize={toggleSize} setSizeQty={setSizeQty}/>
               </EditModal>
             )}
 
@@ -610,7 +606,7 @@ export default function App() {
                 </div>
                 {/* 9번: 사이즈별 수량 */}
                 <div style={{marginTop:12}}>
-                  <SizePicker data={newPurchase} setter={setNewPurchase} showQty={true}/>
+                  <SizePicker data={newPurchase} setter={setNewPurchase} showQty={true} toggleSize={toggleSize} setSizeQty={setSizeQty}/>
                 </div>
                 {newPurchase.price && Object.keys(newPurchase.sizes).length>0 && (() => {
                   const totalQty = Object.values(newPurchase.sizes).reduce((s,q)=>s+Number(q),0);

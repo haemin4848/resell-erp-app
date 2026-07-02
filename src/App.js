@@ -212,12 +212,7 @@ export default function App() {
   };
 
   // 상품별 전체 사이즈 재고 계산
-  const getProductStocks = (prod) => {
-    const stocks = {};
-    Object.keys(prod.sizes).forEach(size => {
-      stocks[size] = calcStock(prod.id, size);
-    });
-    return stocks;
+  // calcStock으로 직접 계산
   };
 
   // 3번: 품번으로 자동 검색

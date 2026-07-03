@@ -57,7 +57,6 @@ function useDB(table) {
   const set = (val) => {
     setValue(prev => {
       const next = typeof val === "function" ? val(prev) : val;
-      const prevIds = new Set(prev.map(x => x.id));
       const nextIds = new Set(next.map(x => x.id));
       next.forEach(item => {
         const prev_item = prev.find(p => p.id === item.id);

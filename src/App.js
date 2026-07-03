@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
 const PLATFORMS = ["포이즌", "크림", "기타"];
-const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320];
+const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320,325,330,335,340,345,350];
 const PAYMENT_TYPES = ["카드", "페이", "계좌이체", "현금", "기타"];
 const CARD_TYPES = ["삼성","현대","롯데","신한","KB국민","하나","우리","NH농협","기업","기타"];
 const PAY_TYPES = ["카카오페이","네이버페이","토스","삼성페이","애플페이","기타"];
@@ -12,19 +12,65 @@ const SETTLEMENT_PLATFORMS = ["포이즌","크림","기타"];
 function generateId() { return Math.random().toString(36).substr(2,9); }
 function formatNum(n) { return Number(n||0).toLocaleString("ko-KR"); }
 
-function useLocalStorage(key, initial) {
-  const [value, setValue] = useState(() => {
-    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : initial; }
-    catch { return initial; }
-  });
-  const setAndSave = (val) => {
+const SUPABASE_URL = "https://pwxekgmtholibyzwbhhu.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3eGVrZ210aG9saWJ5endiaGh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4OTk2NDgsImV4cCI6MjA5ODQ3NTY0OH0.nb5zenjHB1mgEEgk9qGD_EZWMfSIhj24X3D_yZHxP6I";
+const HEADERS = { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` };
+
+async function dbGetAll(table) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*&order=updated_at.asc`, { headers: HEADERS });
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return [];
+    return rows.map(r => r.data).filter(Boolean);
+  } catch { return []; }
+}
+
+async function dbUpsert(table, item) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: { ...HEADERS, Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ id: item.id, data: item, updated_at: new Date().toISOString() })
+    });
+  } catch {}
+}
+
+async function dbDelete(table, id) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+      method: "DELETE", headers: HEADERS
+    });
+  } catch {}
+}
+
+function useDB(table) {
+  const [value, setValue] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    dbGetAll(table).then(data => {
+      setValue(data);
+      setLoaded(true);
+    });
+  }, [table]);
+
+  const set = (val) => {
     setValue(prev => {
       const next = typeof val === "function" ? val(prev) : val;
-      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      const prevIds = new Set(prev.map(x => x.id));
+      const nextIds = new Set(next.map(x => x.id));
+      next.forEach(item => {
+        const prev_item = prev.find(p => p.id === item.id);
+        if (!prev_item || JSON.stringify(prev_item) !== JSON.stringify(item)) {
+          dbUpsert(table, item);
+        }
+      });
+      prev.forEach(item => { if (!nextIds.has(item.id)) dbDelete(table, item.id); });
       return next;
     });
   };
-  return [value, setAndSave];
+
+  return [value, set, loaded];
 }
 
 function exportToCSV(data, filename) {
@@ -108,14 +154,15 @@ function EditModal({ title, children, onSave, onDelete, onClose }) {
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
-  const [products, setProducts] = useLocalStorage("erp_products", []);
-  const [sales, setSales] = useLocalStorage("erp_sales", []);
-  const [purchases, setPurchases] = useLocalStorage("erp_purchases", []);
-  const [otherIncomes, setOtherIncomes] = useLocalStorage("erp_other_incomes", []);
-  const [expenses, setExpenses] = useLocalStorage("erp_expenses", []);
-  const [settlements, setSettlements] = useLocalStorage("erp_settlements", []);
-  const [returns, setReturns] = useLocalStorage("erp_returns", []);
-  const [trash, setTrash] = useLocalStorage("erp_trash", []);
+  const [products, setProducts, prodLoaded] = useDB("products");
+  const [sales, setSales, salesLoaded] = useDB("sales");
+  const [purchases, setPurchases, purchLoaded] = useDB("purchases");
+  const [otherIncomes, setOtherIncomes] = useDB("other_incomes");
+  const [expenses, setExpenses] = useDB("expenses");
+  const [settlements, setSettlements] = useDB("settlements");
+  const [returns, setReturns] = useDB("returns");
+  const [trash, setTrash] = useDB("trash");
+  const loaded = prodLoaded && salesLoaded && purchLoaded;
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
   const [newReturn, setNewReturn] = useState({...emptyReturn});
@@ -345,8 +392,17 @@ export default function App() {
 
   // 수정 모드 공통
 
+  if (!loaded) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#f3f4f6",gap:16}}>
+      <div style={{fontSize:24,fontWeight:800,color:"#6d28d9"}}>RESELL ERP</div>
+      <div style={{fontSize:14,color:"#6b7280"}}>데이터 불러오는 중...</div>
+      <div style={{width:40,height:40,border:"4px solid #e5e7eb",borderTop:"4px solid #6d28d9",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
   return (
-    <div style={{fontFamily:"'-apple-system,BlinkMacSystemFont,sans-serif'",background:"#f3f4f6",minHeight:"100vh",color:"#111"}}>
+    <div style={{fontFamily:"system-ui,sans-serif",background:"#f3f4f6",minHeight:"100vh",color:"#111"}}>
       <div style={{background:"#6d28d9",borderBottom:"none",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{fontSize:20,fontWeight:800,color:"#fff"}}>RESELL ERP</div>
         <div style={{display:"flex",gap:8}}>
@@ -412,18 +468,6 @@ export default function App() {
                 ) : null;
               })}
               {totalExpenses===0 && <div style={{color:"#6b7280",fontSize:13}}>경비 없음</div>}
-            </div>
-            <div style={cs}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:12,color:"#9ca3af"}}>재고 부족</div>
-              {products.flatMap(p=>Object.keys(p.sizes).map(size=>({...p,size,stock:calcStock(p.id,size)})).filter(x=>x.stock<=2)).length===0
-                ? <div style={{color:"#6b7280",fontSize:13}}>재고 부족 없음 ✅</div>
-                : products.flatMap(p=>Object.keys(p.sizes).map(size=>({...p,size,stock:calcStock(p.id,size)})).filter(x=>x.stock<=2)).map(x=>(
-                  <div key={x.id+x.size} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #e5e7eb"}}>
-                    <span style={{fontSize:13}}>{x.name} {x.size}mm</span>
-                    <span style={{color:x.stock<=0?"#f87171":"#fb923c",fontWeight:700}}>{x.stock}개</span>
-                  </div>
-                ))
-              }
             </div>
           </div>
         )}
@@ -642,44 +686,53 @@ export default function App() {
 
             {purchases.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>매입 내역 없음</div>
               : (() => {
-                // 날짜별 그룹핑
                 const grouped = [...purchases].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
-                  const key = p.date;
-                  if (!acc[key]) acc[key] = [];
-                  acc[key].push(p);
+                  if (!acc[p.date]) acc[p.date] = {};
+                  const key = p.productId || p.manualName || p.productName;
+                  if (!acc[p.date][key]) acc[p.date][key] = [];
+                  acc[p.date][key].push(p);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([date, items]) => (
-                  <div key={date} style={{marginBottom:16}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8,padding:"6px 12px",background:"#f3f4f6",borderRadius:8}}>{date}</div>
-                    {items.map(p=>{
-                      const prod=products.find(x=>x.id===p.productId);
-                      const {supply,vat}=calcVat(p.price,p.qty);
-                      return (
-                        <div key={p.id} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingPurchase({...p})}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:10}}>
-                              {prod?.image && <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
-                              <div>
-                                <div style={{fontWeight:700,fontSize:15}}>{p.productName} {p.size && <span style={{color:"#6d28d9"}}>{p.size}mm</span>}</div>
-                                <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {p.productCode||"-"} · {p.qty}개 · {p.place||"-"}</div>
-                                <div style={{fontSize:12,color:"#6b7280"}}>
-                                  {p.payType}
-                                  {p.payType==="카드"?` (${p.cardType})`:""}
-                                  {p.payType==="페이"?` (${p.payBrand})`:""}
-                                  {p.payType==="계좌이체"?` (${p.bankType})`:""}
-                                  {p.payType==="기타"?` (${p.payOther})`:""}
+                return Object.entries(grouped).map(([date, productGroups]) => {
+                  const dayTotal = Object.values(productGroups).flat().reduce((s,p)=>s+Number(p.price)*Number(p.qty||1),0);
+                  return (
+                    <div key={date} style={{marginBottom:16}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8,padding:"6px 12px",background:"#f3f4f6",borderRadius:8,display:"flex",justifyContent:"space-between"}}>
+                        <span>{date}</span>
+                        <span style={{color:"#d97706"}}>합계 {formatNum(dayTotal)}원</span>
+                      </div>
+                      {Object.entries(productGroups).map(([key, items]) => {
+                        const prod = products.find(x=>x.id===items[0].productId);
+                        const totalQty = items.reduce((s,p)=>s+Number(p.qty||1),0);
+                        const totalAmt = items.reduce((s,p)=>s+Number(p.price)*Number(p.qty||1),0);
+                        const {supply,vat} = calcVat(totalAmt/totalQty, totalQty);
+                        const sizes = items.map(p=>p.size).filter(Boolean).join(", ");
+                        return (
+                          <div key={key} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingPurchase({...items[0]})}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                                {prod?.image && <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
+                                <div>
+                                  <div style={{fontWeight:700,fontSize:15}}>{items[0].productName} {sizes && <span style={{color:"#6d28d9"}}>{sizes}mm</span>}</div>
+                                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {items[0].productCode||"-"} · 총 {totalQty}개 · {items[0].place||"-"}</div>
+                                  <div style={{fontSize:12,color:"#6b7280"}}>
+                                    {items[0].payType}
+                                    {items[0].payType==="카드"?` (${items[0].cardType})`:""}
+                                    {items[0].payType==="페이"?` (${items[0].payBrand})`:""}
+                                    {items[0].payType==="계좌이체"?` (${items[0].bankType})`:""}
+                                    {items[0].payType==="기타"?` (${items[0].payOther})`:""}
+                                  </div>
+                                  <div style={{fontSize:12,color:"#b45309",marginTop:2}}>공급가액 {formatNum(Math.round(supply))}원 · 부가세 {formatNum(Math.round(vat))}원 · 합계 {formatNum(totalAmt)}원</div>
                                 </div>
-                                <div style={{fontSize:12,color:"#b45309",marginTop:2}}>공급가액 {formatNum(Math.round(supply))}원 · 부가세 {formatNum(Math.round(vat))}원 · 합계 {formatNum(p.price*p.qty)}원</div>
                               </div>
+                              <div style={{fontSize:15,fontWeight:700,color:"#d97706",flexShrink:0}}>{formatNum(totalAmt)}원</div>
                             </div>
-                            <div style={{fontSize:15,fontWeight:700,color:"#d97706",flexShrink:0}}>{formatNum(p.price*p.qty)}원</div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ));
+                        );
+                      })}
+                    </div>
+                  );
+                });
               })()
             }
           </div>
@@ -762,39 +815,51 @@ export default function App() {
             {sales.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>매출 내역 없음</div>
               : (() => {
                 const grouped = [...sales].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,s)=>{
-                  if (!acc[s.date]) acc[s.date] = [];
-                  acc[s.date].push(s);
+                  if (!acc[s.date]) acc[s.date] = {};
+                  const key = s.productId || s.manualName || s.productName;
+                  if (!acc[s.date][key]) acc[s.date][key] = [];
+                  acc[s.date][key].push(s);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([date, items]) => (
-                  <div key={date} style={{marginBottom:16}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8,padding:"6px 12px",background:"#f3f4f6",borderRadius:8}}>{date}</div>
-                    {items.map(s=>{
-                      const prod=products.find(p=>p.id===s.productId);
-                      const {profit,profitRate}=calcProfit(s);
-                      return (
-                        <div key={s.id} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingSale({...s})}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:10}}>
-                              {prod?.image && <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:6,objectFit:"contain",background:"#f3f4f6"}}/>}
-                              <div>
-                                <div style={{fontWeight:700,fontSize:15}}>{s.productName} {s.size && <span style={{color:"#6d28d9"}}>{s.size}mm</span>}</div>
-                                <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {s.productCode||"-"} · {s.platform==="기타"?s.platformOther||"기타":s.platform} · {s.qty}개</div>
-                                <div style={{fontSize:12,color:"#6b7280"}}>수수료: {formatNum(s.fee||0)}원 · 배송비: {formatNum(s.shipping||0)}원</div>
-                                {s.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {s.memo}</div>}
+                return Object.entries(grouped).map(([date, productGroups]) => {
+                  const dayTotal = Object.values(productGroups).flat().reduce((s,x)=>s+Number(x.price)*Number(x.qty||1),0);
+                  const dayProfit = Object.values(productGroups).flat().reduce((s,x)=>s+calcProfit(x).profit,0);
+                  return (
+                    <div key={date} style={{marginBottom:16}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8,padding:"6px 12px",background:"#f3f4f6",borderRadius:8,display:"flex",justifyContent:"space-between"}}>
+                        <span>{date}</span>
+                        <span><span style={{color:"#6d28d9"}}>합계 {formatNum(dayTotal)}원</span> · <span style={{color:dayProfit>=0?"#059669":"#dc2626"}}>수익 {formatNum(dayProfit)}원</span></span>
+                      </div>
+                      {Object.entries(productGroups).map(([key, items]) => {
+                        const prod = products.find(p=>p.id===items[0].productId);
+                        const totalQty = items.reduce((s,x)=>s+Number(x.qty||1),0);
+                        const totalAmt = items.reduce((s,x)=>s+Number(x.price)*Number(x.qty||1),0);
+                        const totalProfit = items.reduce((s,x)=>s+calcProfit(x).profit,0);
+                        const avgProfitRate = totalAmt>0?(totalProfit/totalAmt*100):0;
+                        const sizes = items.map(x=>x.size).filter(Boolean).join(", ");
+                        return (
+                          <div key={key} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingSale({...items[0]})}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                                {prod?.image && <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:6,objectFit:"contain",background:"#f3f4f6"}}/>}
+                                <div>
+                                  <div style={{fontWeight:700,fontSize:15}}>{items[0].productName} {sizes && <span style={{color:"#6d28d9"}}>{sizes}mm</span>}</div>
+                                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {items[0].productCode||"-"} · {items[0].platform==="기타"?items[0].platformOther||"기타":items[0].platform} · 총 {totalQty}개</div>
+                                  <div style={{fontSize:12,color:"#6b7280"}}>수수료: {formatNum(items[0].fee||0)}원 · 배송비: {formatNum(items[0].shipping||0)}원</div>
+                                </div>
+                              </div>
+                              <div style={{textAlign:"right",flexShrink:0}}>
+                                <div style={{fontSize:15,fontWeight:700}}>{formatNum(totalAmt)}원</div>
+                                <div style={{fontSize:12,color:totalProfit>=0?"#059669":"#dc2626"}}>수익 {formatNum(totalProfit)}원</div>
+                                <div style={{fontSize:12,color:avgProfitRate>=0?"#059669":"#dc2626"}}>{avgProfitRate.toFixed(1)}%</div>
                               </div>
                             </div>
-                            <div style={{textAlign:"right",flexShrink:0}}>
-                              <div style={{fontSize:15,fontWeight:700}}>{formatNum(s.price*s.qty)}원</div>
-                              <div style={{fontSize:12,color:profit>=0?"#059669":"#dc2626"}}>수익 {formatNum(profit)}원</div>
-                              <div style={{fontSize:12,color:profitRate>=0?"#059669":"#dc2626"}}>{profitRate.toFixed(1)}%</div>
-                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ));
+                        );
+                      })}
+                    </div>
+                  );
+                });
               })()
             }
           </div>

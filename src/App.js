@@ -2,6 +2,10 @@ import { useState, useRef, useEffect } from "react";
 
 const PLATFORMS = ["포이즌", "크림", "기타"];
 const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320,325,330,335,340,345,350];
+const CATEGORIES = ["신발", "의류", "가방", "기타"];
+const CLOTHING_SIZES = ["XS","S","M","L","XL","XXL","XXXL"];
+const BAG_SIZES = ["FREE","XS","S","M","L","XL"];
+const OTHER_SIZES = ["FREE","XS","S","M","L","XL","XXL","1","2","3","4","5","6","7","8","9","10"];
 const PAYMENT_TYPES = ["카드", "페이", "계좌이체", "현금", "기타"];
 const CARD_TYPES = ["삼성","현대","롯데","신한","KB국민","하나","우리","NH농협","기업","기타"];
 const PAY_TYPES = ["카카오페이","네이버페이","토스","삼성페이","애플페이","기타"];
@@ -94,7 +98,7 @@ function calcVat(price, qty) {
   return { supply, vat: supply * 0.1 };
 }
 
-const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{} };
+const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{}, category:"신발" };
 const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", memo:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyExpense = { type:"주유", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
@@ -103,11 +107,15 @@ const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty
 
 // 5번: EditModal을 App 밖에 정의해야 리렌더링시 커서 안 날아감
 function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
+  const category = data.category || "신발";
+  const sizeList = category === "신발" ? SIZES : category === "의류" ? CLOTHING_SIZES : category === "가방" ? BAG_SIZES : OTHER_SIZES;
+  const isNumeric = category === "신발";
+
   return (
     <div style={{marginBottom:14}}>
       <div style={{fontSize:13,color:"#6b7280",marginBottom:5,fontWeight:500}}>사이즈 선택 {showQty && "(수량도 입력 가능)"}</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-        {SIZES.map(s => (
+        {sizeList.map(s => (
           <button key={s} onClick={() => toggleSize(s, setter)}
             style={{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",background:data.sizes[s]!==undefined?"#6d28d9":"#f3f4f6",color:data.sizes[s]!==undefined?"#fff":"#374151",fontSize:12,fontWeight:data.sizes[s]!==undefined?700:400}}>
             {s}
@@ -116,7 +124,7 @@ function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
       </div>
       {showQty && Object.keys(data.sizes).length>0 && (
         <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-          {Object.keys(data.sizes).sort((a,b)=>a-b).map(size => (
+          {Object.keys(data.sizes).map(size => (
             <div key={size} style={{display:"flex",alignItems:"center",gap:4}}>
               <span style={{fontSize:12,color:"#9ca3af",minWidth:28}}>{size}</span>
               <input type="number" min="1" value={data.sizes[size]}
@@ -128,7 +136,7 @@ function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
       )}
       {Object.keys(data.sizes).length>0 && (
         <div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"#f8f9fa",fontSize:11,color:"#6b7280"}}>
-          선택: {Object.keys(data.sizes).sort((a,b)=>a-b).map(s=>`${s}mm×${data.sizes[s]}`).join(", ")}
+          선택: {Object.keys(data.sizes).map(s=>`${s}${isNumeric?"mm":""}×${data.sizes[s]}`).join(", ")}
         </div>
       )}
     </div>
@@ -537,6 +545,17 @@ export default function App() {
             {showAddProduct && (
               <div style={{...cs,border:"1px solid #6d28d9"}}>
                 <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>새 상품 등록</div>
+                <div style={{marginBottom:12}}>
+                  <div style={lbl}>카테고리</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {CATEGORIES.map(c=>(
+                      <button key={c} onClick={()=>setNewProduct(prev=>({...prev,category:c,sizes:{}}))}
+                        style={{padding:"6px 16px",borderRadius:8,border:"none",cursor:"pointer",background:newProduct.category===c?"#6d28d9":"#f3f4f6",color:newProduct.category===c?"#fff":"#374151",fontWeight:newProduct.category===c?700:400,fontSize:13}}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {/* 2번: contain */}
                 <div style={{marginBottom:12}}>
                   <div style={lbl}>이미지</div>
@@ -566,6 +585,17 @@ export default function App() {
                 onDelete={()=>{ if(window.confirm("삭제하고 휴지통으로 이동할까요?")){ moveToTrash(editingProduct,"product"); setEditingProduct(null); } }}
                 onClose={()=>setEditingProduct(null)}>
                 <div style={{marginBottom:12}}>
+                  <div style={lbl}>카테고리</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {CATEGORIES.map(c=>(
+                      <button key={c} onClick={()=>setEditingProduct(p=>({...p,category:c,sizes:{}}))}
+                        style={{padding:"6px 16px",borderRadius:8,border:"none",cursor:"pointer",background:(editingProduct.category||"신발")===c?"#6d28d9":"#f3f4f6",color:(editingProduct.category||"신발")===c?"#fff":"#374151",fontWeight:(editingProduct.category||"신발")===c?700:400,fontSize:13}}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:12}}>
                   <div style={lbl}>이미지</div>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
                     {editingProduct.image ? <img src={editingProduct.image} alt="" style={{width:64,height:64,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/> : <div style={{width:64,height:64,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#9ca3af"}}>👟</div>}
@@ -594,7 +624,7 @@ export default function App() {
                         <div style={{fontWeight:700,fontSize:14}}>{p.name}</div>
                         <div style={{fontSize:11,color:"#6d28d9"}}>✏️ 수정</div>
                       </div>
-                      <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{p.brand} · 품번: {p.code||"-"} · 발행가: {formatNum(p.releasePrice)}원</div>
+                      <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{p.brand} · 품번: {p.code||"-"} · {p.category||"신발"} · 발행가: {formatNum(p.releasePrice)}원</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8}}>
                         {Object.keys(p.sizes).sort((a,b)=>a-b).map(size=>{ const stock=calcStock(p.id,size); if(stock<=0) return null; return (
                           <div key={size} style={{padding:"3px 9px",borderRadius:6,background:stock<=2?"#fef3c7":"#d1fae5",fontSize:12}}>
@@ -764,7 +794,7 @@ export default function App() {
                   {newSale.productId && <div><div style={lbl}>사이즈</div>
                     <select value={newSale.size} onChange={e=>setNewSale(prev=>({...prev,size:e.target.value}))} style={sel}>
                       <option value="">선택</option>
-                      {selectedProd && Object.keys(selectedProd.sizes).sort((a,b)=>a-b).map(s=><option key={s} value={s}>{s}mm (재고 {calcStock(selectedProd.id,s)}개)</option>)}
+                      {selectedProd && Object.keys(selectedProd.sizes).map(s=><option key={s} value={s}>{s}{(selectedProd.category||"신발")==="신발"?"mm":""} (재고 {calcStock(selectedProd.id,s)}개)</option>)}
                     </select>
                   </div>}
                   <div><div style={lbl}>플랫폼</div>

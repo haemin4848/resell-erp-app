@@ -288,7 +288,8 @@ export default function App() {
   const calcStock = (productId, size) => {
     const inQty = purchases.filter(p => p.productId===productId && p.size===size).reduce((s,p) => s+Number(p.qty||1), 0);
     const outQty = sales.filter(s => s.productId===productId && s.size===size).reduce((s,x) => s+Number(x.qty||1), 0);
-    return inQty - outQty;
+    const returnQty = returns.filter(r => r.productId===productId && r.size===size).reduce((s,r) => s+Number(r.qty||1), 0);
+    return inQty - outQty - returnQty;
   };
 
   // 3번: 품번으로 자동 검색
@@ -508,10 +509,10 @@ export default function App() {
                       </div>
                     </div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                      {Object.keys(p.sizes).sort((a,b)=>a-b).map(size=>{ const stock=calcStock(p.id,size); return (
-                        <div key={size} style={{padding:"3px 9px",borderRadius:6,background:stock<=0?"#fee2e2":stock<=2?"#fef3c7":"#d1fae5",fontSize:12}}>
+                      {Object.keys(p.sizes).sort((a,b)=>a-b).map(size=>{ const stock=calcStock(p.id,size); if(stock<=0) return null; return (
+                        <div key={size} style={{padding:"3px 9px",borderRadius:6,background:stock<=2?"#fef3c7":"#d1fae5",fontSize:12}}>
                           <span style={{color:"#9ca3af"}}>{size}</span>
-                          <span style={{color:stock<=0?"#dc2626":stock<=2?"#d97706":"#059669",fontWeight:700,marginLeft:3}}>{stock}</span>
+                          <span style={{color:stock<=2?"#d97706":"#059669",fontWeight:700,marginLeft:3}}>{stock}</span>
                         </div>
                       );})}
                     </div>
@@ -595,10 +596,10 @@ export default function App() {
                       </div>
                       <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{p.brand} · 품번: {p.code||"-"} · 발행가: {formatNum(p.releasePrice)}원</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:8}}>
-                        {Object.keys(p.sizes).sort((a,b)=>a-b).map(size=>{ const stock=calcStock(p.id,size); return (
-                          <div key={size} style={{padding:"3px 9px",borderRadius:6,background:stock<=0?"#fee2e2":stock<=2?"#fef3c7":"#d1fae5",fontSize:12}}>
+                        {Object.keys(p.sizes).sort((a,b)=>a-b).map(size=>{ const stock=calcStock(p.id,size); if(stock<=0) return null; return (
+                          <div key={size} style={{padding:"3px 9px",borderRadius:6,background:stock<=2?"#fef3c7":"#d1fae5",fontSize:12}}>
                             <span style={{color:"#9ca3af"}}>{size}</span>
-                            <span style={{color:stock<=0?"#dc2626":stock<=2?"#d97706":"#059669",fontWeight:700,marginLeft:3}}>{stock}개</span>
+                            <span style={{color:stock<=2?"#d97706":"#059669",fontWeight:700,marginLeft:3}}>{stock}개</span>
                           </div>
                         );})}
                       </div>

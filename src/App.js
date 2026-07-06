@@ -159,7 +159,44 @@ function EditModal({ title, children, onSave, onDelete, onClose }) {
   );
 }
 
+const PASSWORD = "500476";
+
 export default function App() {
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem("erp_auth") === "ok");
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState(false);
+
+  const handleLogin = () => {
+    if (pwInput === PASSWORD) {
+      sessionStorage.setItem("erp_auth", "ok");
+      setAuthed(true);
+    } else {
+      setPwError(true);
+      setTimeout(() => setPwError(false), 2000);
+    }
+  };
+
+  if (!authed) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#f3f4f6",gap:16}}>
+      <div style={{background:"#fff",borderRadius:16,padding:40,boxShadow:"0 4px 20px rgba(0,0,0,0.1)",width:"100%",maxWidth:360,textAlign:"center"}}>
+        <div style={{fontSize:24,fontWeight:800,color:"#6d28d9",marginBottom:8}}>RESELL ERP</div>
+        <div style={{fontSize:13,color:"#9ca3af",marginBottom:24}}>비밀번호를 입력해주세요</div>
+        <input
+          type="password"
+          value={pwInput}
+          onChange={e=>setPwInput(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+          placeholder="비밀번호"
+          style={{width:"100%",padding:"12px 16px",borderRadius:10,border:pwError?"2px solid #dc2626":"2px solid #e5e7eb",background:"#f9fafb",color:"#111",fontSize:16,boxSizing:"border-box",marginBottom:8,outline:"none"}}
+          autoFocus
+        />
+        {pwError && <div style={{color:"#dc2626",fontSize:13,marginBottom:8}}>비밀번호가 틀렸어요!</div>}
+        <button onClick={handleLogin} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"#6d28d9",color:"#fff",fontWeight:700,fontSize:16,cursor:"pointer",marginTop:8}}>
+          입장
+        </button>
+      </div>
+    </div>
+  );
   const [tab, setTab] = useState("dashboard");
   const [products, setProducts, prodLoaded] = useDB("products");
   const [sales, setSales, salesLoaded] = useDB("sales");
@@ -844,44 +881,40 @@ export default function App() {
 
             {sales.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>매출 내역 없음</div>
               : (() => {
+                // 날짜별로만 그룹핑 - 개별 항목은 각각 표시
                 const grouped = [...sales].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,s)=>{
-                  if (!acc[s.date]) acc[s.date] = {};
-                  const key = s.productId || s.manualName || s.productName;
-                  if (!acc[s.date][key]) acc[s.date][key] = [];
-                  acc[s.date][key].push(s);
+                  if (!acc[s.date]) acc[s.date] = [];
+                  acc[s.date].push(s);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([date, productGroups]) => {
-                  const dayTotal = Object.values(productGroups).flat().reduce((s,x)=>s+Number(x.price)*Number(x.qty||1),0);
-                  const dayProfit = Object.values(productGroups).flat().reduce((s,x)=>s+calcProfit(x).profit,0);
+                return Object.entries(grouped).map(([date, items]) => {
+                  const dayTotal = items.reduce((s,x)=>s+Number(x.price)*Number(x.qty||1),0);
+                  const dayProfit = items.reduce((s,x)=>s+calcProfit(x).profit,0);
                   return (
                     <div key={date} style={{marginBottom:16}}>
                       <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8,padding:"6px 12px",background:"#f3f4f6",borderRadius:8,display:"flex",justifyContent:"space-between"}}>
                         <span>{date}</span>
                         <span><span style={{color:"#6d28d9"}}>합계 {formatNum(dayTotal)}원</span> · <span style={{color:dayProfit>=0?"#059669":"#dc2626"}}>수익 {formatNum(dayProfit)}원</span></span>
                       </div>
-                      {Object.entries(productGroups).map(([key, items]) => {
-                        const prod = products.find(p=>p.id===items[0].productId);
-                        const totalQty = items.reduce((s,x)=>s+Number(x.qty||1),0);
-                        const totalAmt = items.reduce((s,x)=>s+Number(x.price)*Number(x.qty||1),0);
-                        const totalProfit = items.reduce((s,x)=>s+calcProfit(x).profit,0);
-                        const avgProfitRate = totalAmt>0?(totalProfit/totalAmt*100):0;
-                        const sizes = items.map(x=>x.size).filter(Boolean).join(", ");
+                      {items.map(s => {
+                        const prod = products.find(p=>p.id===s.productId);
+                        const {profit, profitRate} = calcProfit(s);
                         return (
-                          <div key={key} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingSale({...items[0]})}>
+                          <div key={s.id} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingSale({...s})}>
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                               <div style={{display:"flex",alignItems:"center",gap:10}}>
                                 {prod?.image && <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:6,objectFit:"contain",background:"#f3f4f6"}}/>}
                                 <div>
-                                  <div style={{fontWeight:700,fontSize:15}}>{items[0].productName} {sizes && <span style={{color:"#6d28d9"}}>{sizes}mm</span>}</div>
-                                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {items[0].productCode||"-"} · {items[0].platform==="기타"?items[0].platformOther||"기타":items[0].platform} · 총 {totalQty}개</div>
-                                  <div style={{fontSize:12,color:"#6b7280"}}>수수료: {formatNum(items[0].fee||0)}원 · 배송비: {formatNum(items[0].shipping||0)}원</div>
+                                  <div style={{fontWeight:700,fontSize:15}}>{s.productName} {s.size && <span style={{color:"#6d28d9"}}>{s.size}</span>}</div>
+                                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {s.productCode||"-"} · {s.platform==="기타"?s.platformOther||"기타":s.platform} · {s.qty}개</div>
+                                  <div style={{fontSize:12,color:"#6b7280"}}>수수료: {formatNum(s.fee||0)}원 · 배송비: {formatNum(s.shipping||0)}원</div>
+                                  {s.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {s.memo}</div>}
                                 </div>
                               </div>
                               <div style={{textAlign:"right",flexShrink:0}}>
-                                <div style={{fontSize:15,fontWeight:700}}>{formatNum(totalAmt)}원</div>
-                                <div style={{fontSize:12,color:totalProfit>=0?"#059669":"#dc2626"}}>수익 {formatNum(totalProfit)}원</div>
-                                <div style={{fontSize:12,color:avgProfitRate>=0?"#059669":"#dc2626"}}>{avgProfitRate.toFixed(1)}%</div>
+                                <div style={{fontSize:15,fontWeight:700}}>{formatNum(s.price*s.qty)}원</div>
+                                <div style={{fontSize:12,color:profit>=0?"#059669":"#dc2626"}}>수익 {formatNum(profit)}원</div>
+                                <div style={{fontSize:12,color:profitRate>=0?"#059669":"#dc2626"}}>{profitRate.toFixed(1)}%</div>
                               </div>
                             </div>
                           </div>

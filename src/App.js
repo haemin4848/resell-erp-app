@@ -310,7 +310,7 @@ export default function App() {
   const handleCodeInput = (code, type) => {
     const found = products.find(p => p.code && p.code.toLowerCase()===code.toLowerCase());
     if (type==="sale") setNewSale(prev => ({ ...prev, code, productId: found?.id||"", manualName: found ? "" : prev.manualName, size:"" }));
-    else setNewPurchase(prev => ({ ...prev, code, productId: found?.id||"", manualName: found ? "" : prev.manualName, size:"" }));
+    else setNewPurchase(prev => ({ ...prev, code, productId: found?.id||"", manualName: found ? "" : prev.manualName, size:"", sizes:{}, category: found?.category||"신발" }));
   };
 
   const totalSell = sales.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
@@ -717,10 +717,12 @@ export default function App() {
                   ))}
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newPurchase.memo} onChange={e=>setNewPurchase(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
-                {/* 9번: 사이즈별 수량 */}
+                {/* 9번: 사이즈별 수량 - 상품 선택 후에만 표시 */}
+                {(newPurchase.productId || newPurchase.manualName) && (
                 <div style={{marginTop:12}}>
-                  <SizePicker data={newPurchase} setter={setNewPurchase} showQty={true} toggleSize={toggleSize} setSizeQty={setSizeQty}/>
+                  <SizePicker data={{...newPurchase, category: newPurchase.category || (selectedProdP?.category || "신발")}} setter={setNewPurchase} showQty={true} toggleSize={toggleSize} setSizeQty={setSizeQty}/>
                 </div>
+                )}
                 {newPurchase.price && Object.keys(newPurchase.sizes).length>0 && (() => {
                   const totalQty = Object.values(newPurchase.sizes).reduce((s,q)=>s+Number(q),0);
                   const {supply,vat} = calcVat(newPurchase.price, totalQty);

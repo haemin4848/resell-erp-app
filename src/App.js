@@ -162,41 +162,10 @@ function EditModal({ title, children, onSave, onDelete, onClose }) {
 const PASSWORD = "500476";
 
 export default function App() {
+  // 인증 훅 - 반드시 최상단에
   const [authed, setAuthed] = useState(() => sessionStorage.getItem("erp_auth") === "ok");
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState(false);
-
-  const handleLogin = () => {
-    if (pwInput === PASSWORD) {
-      sessionStorage.setItem("erp_auth", "ok");
-      setAuthed(true);
-    } else {
-      setPwError(true);
-      setTimeout(() => setPwError(false), 2000);
-    }
-  };
-
-  if (!authed) return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#f3f4f6",gap:16}}>
-      <div style={{background:"#fff",borderRadius:16,padding:40,boxShadow:"0 4px 20px rgba(0,0,0,0.1)",width:"100%",maxWidth:360,textAlign:"center"}}>
-        <div style={{fontSize:24,fontWeight:800,color:"#6d28d9",marginBottom:8}}>RESELL ERP</div>
-        <div style={{fontSize:13,color:"#9ca3af",marginBottom:24}}>비밀번호를 입력해주세요</div>
-        <input
-          type="password"
-          value={pwInput}
-          onChange={e=>setPwInput(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-          placeholder="비밀번호"
-          style={{width:"100%",padding:"12px 16px",borderRadius:10,border:pwError?"2px solid #dc2626":"2px solid #e5e7eb",background:"#f9fafb",color:"#111",fontSize:16,boxSizing:"border-box",marginBottom:8,outline:"none"}}
-          autoFocus
-        />
-        {pwError && <div style={{color:"#dc2626",fontSize:13,marginBottom:8}}>비밀번호가 틀렸어요!</div>}
-        <button onClick={handleLogin} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"#6d28d9",color:"#fff",fontWeight:700,fontSize:16,cursor:"pointer",marginTop:8}}>
-          입장
-        </button>
-      </div>
-    </div>
-  );
   const [tab, setTab] = useState("dashboard");
   const [products, setProducts, prodLoaded] = useDB("products");
   const [sales, setSales, salesLoaded] = useDB("sales");
@@ -436,6 +405,38 @@ export default function App() {
   const selectedProdP = products.find(p => p.id===newPurchase.productId);
 
   // 수정 모드 공통
+
+  const handleLogin = () => {
+    if (pwInput === PASSWORD) {
+      sessionStorage.setItem("erp_auth", "ok");
+      setAuthed(true);
+    } else {
+      setPwError(true);
+      setTimeout(() => setPwError(false), 2000);
+    }
+  };
+
+  if (!authed) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#f3f4f6",gap:16}}>
+      <div style={{background:"#fff",borderRadius:16,padding:40,boxShadow:"0 4px 20px rgba(0,0,0,0.1)",width:"100%",maxWidth:360,textAlign:"center"}}>
+        <div style={{fontSize:24,fontWeight:800,color:"#6d28d9",marginBottom:8}}>RESELL ERP</div>
+        <div style={{fontSize:13,color:"#9ca3af",marginBottom:24}}>비밀번호를 입력해주세요</div>
+        <input
+          type="password"
+          value={pwInput}
+          onChange={e=>setPwInput(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+          placeholder="비밀번호"
+          style={{width:"100%",padding:"12px 16px",borderRadius:10,border:pwError?"2px solid #dc2626":"2px solid #e5e7eb",background:"#f9fafb",color:"#111",fontSize:16,boxSizing:"border-box",marginBottom:8,outline:"none"}}
+          autoFocus
+        />
+        {pwError && <div style={{color:"#dc2626",fontSize:13,marginBottom:8}}>비밀번호가 틀렸어요!</div>}
+        <button onClick={handleLogin} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"#6d28d9",color:"#fff",fontWeight:700,fontSize:16,cursor:"pointer",marginTop:8}}>
+          입장
+        </button>
+      </div>
+    </div>
+  );
 
   if (!loaded) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#f3f4f6",gap:16}}>

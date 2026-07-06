@@ -7,7 +7,7 @@ const CLOTHING_SIZES = ["XS","S","M","L","XL","XXL","XXXL"];
 const BAG_SIZES = ["FREE","XS","S","M","L","XL"];
 const OTHER_SIZES = ["FREE","XS","S","M","L","XL","XXL","1","2","3","4","5","6","7","8","9","10"];
 const PAYMENT_TYPES = ["카드", "페이", "계좌이체", "현금", "기타"];
-const CARD_TYPES = ["삼성","현대","롯데","신한","KB국민","하나","우리","NH농협","기업","기타"];
+const CARD_TYPES = ["삼성","현대","롯데","BC","신한","KB국민","하나","우리","NH농협","기업","기타"];
 const PAY_TYPES = ["카카오페이","네이버페이","토스","삼성페이","애플페이","기타"];
 const BANK_TYPES = ["국민","신한","우리","하나","농협","기업","카카오뱅크","토스뱅크","SC제일","씨티","기타"];
 const EXPENSE_TYPES = ["주유","식대","잡자재","기타"];
@@ -659,7 +659,7 @@ export default function App() {
                     {p.image ? <img src={p.image} alt="" style={{width:54,height:54,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:54,height:54,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>👟</div>}
                     <div style={{flex:1}}>
                       <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <div style={{fontWeight:700,fontSize:14}}>{p.name}</div>
+                        <div style={{fontWeight:700,fontSize:17}}>{p.name}</div>
                         <div style={{fontSize:11,color:"#6d28d9"}}>✏️ 수정</div>
                       </div>
                       <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{p.brand} · 품번: {p.code||"-"} · {p.category||"신발"} · 발행가: {formatNum(p.releasePrice)}원</div>
@@ -697,7 +697,7 @@ export default function App() {
                   {/* 3번: 품번 자동검색 */}
                   <div><div style={lbl}>품번 (자동검색)</div><input value={newPurchase.code} onChange={e=>handleCodeInput(e.target.value,"purchase")} placeholder="품번 입력" style={inp}/></div>
                   <div><div style={lbl}>상품 선택</div>
-                    <select value={newPurchase.productId} onChange={e=>setNewPurchase(prev=>({...prev,productId:e.target.value,code:products.find(p=>p.id===e.target.value)?.code||"",size:"",sizes:{}}))} style={sel}>
+                    <select value={newPurchase.productId} onChange={e=>{ const prod=products.find(p=>p.id===e.target.value); setNewPurchase(prev=>({...prev,productId:e.target.value,code:prod?.code||"",size:"",sizes:{},category:prod?.category||"신발"}));}} style={sel}>
                       <option value="">직접 입력</option>
                       {[...products].sort((a,b)=>a.name.localeCompare(b.name,"ko")).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
@@ -781,8 +781,8 @@ export default function App() {
                               <div style={{display:"flex",alignItems:"center",gap:10}}>
                                 {prod?.image && <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
                                 <div>
-                                  <div style={{fontWeight:700,fontSize:15}}>{items[0].productName} {sizes && <span style={{color:"#6d28d9"}}>{sizes}mm</span>}</div>
-                                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {items[0].productCode||"-"} · 총 {totalQty}개 · {items[0].place||"-"}</div>
+                                  <div style={{fontWeight:700,fontSize:17}}>{items[0].productName} {sizes && <span style={{color:"#6d28d9"}}>{sizes}mm</span>}</div>
+                                  <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {items[0].productCode||"-"} · 총 {totalQty}개 · {items[0].place||"-"}</div>
                                   <div style={{fontSize:12,color:"#6b7280"}}>
                                     {items[0].payType}
                                     {items[0].payType==="카드"?` (${items[0].cardType})`:""}
@@ -906,8 +906,8 @@ export default function App() {
                               <div style={{display:"flex",alignItems:"center",gap:10}}>
                                 {prod?.image && <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:6,objectFit:"contain",background:"#f3f4f6"}}/>}
                                 <div>
-                                  <div style={{fontWeight:700,fontSize:15}}>{s.productName} {s.size && <span style={{color:"#6d28d9"}}>{s.size}</span>}</div>
-                                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {s.productCode||"-"} · {s.platform==="기타"?s.platformOther||"기타":s.platform} · {s.qty}개</div>
+                                  <div style={{fontWeight:700,fontSize:17}}>{s.productName} {s.size && <span style={{color:"#6d28d9"}}>{s.size}</span>}</div>
+                                  <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {s.productCode||"-"} · {s.platform==="기타"?s.platformOther||"기타":s.platform} · {s.qty}개</div>
                                   <div style={{fontSize:12,color:"#6b7280"}}>수수료: {formatNum(s.fee||0)}원 · 배송비: {formatNum(s.shipping||0)}원</div>
                                   {s.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {s.memo}</div>}
                                 </div>
@@ -1055,8 +1055,8 @@ export default function App() {
                 <div key={r.id} style={{...cs,marginBottom:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
-                      <div style={{fontWeight:700,fontSize:15}}>{r.productName} <span style={{color:"#6d28d9"}}>{r.size}mm</span></div>
-                      <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>품번: {r.productCode||"-"} · {r.date} · {r.qty}개</div>
+                      <div style={{fontWeight:700,fontSize:17}}>{r.productName} <span style={{color:"#6d28d9"}}>{r.size}mm</span></div>
+                      <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {r.productCode||"-"} · {r.date} · {r.qty}개</div>
                       {r.reason && <div style={{fontSize:12,color:"#dc2626"}}>사유: {r.reason}</div>}
                       {r.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {r.memo}</div>}
                     </div>

@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 const PLATFORMS = ["포이즌", "크림", "기타"];
 const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320,325,330,335,340,345,350];
 const CATEGORIES = ["신발", "의류", "가방", "기타"];
-const CLOTHING_SIZES = ["XS","S","M","L","XL","XXL","XXXL"];
+const CLOTHING_SIZES = ["70","75","80","85","90","92","95","100","105","110","115","120","XS","S","M","L","XL","XXL","XXXL"];
 const BAG_SIZES = ["FREE","XS","S","M","L","XL"];
 const OTHER_SIZES = ["FREE","XS","S","M","L","XL","XXL","1","2","3","4","5","6","7","8","9","10"];
 const PAYMENT_TYPES = ["카드", "페이", "계좌이체", "현금", "기타"];

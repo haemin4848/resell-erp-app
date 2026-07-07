@@ -101,7 +101,7 @@ function calcVat(price, qty) {
 const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{}, category:"신발" };
 const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", memo:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
-const emptyExpense = { type:"주유", itemName:"", qty:"1", usagePlace:"", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
+const emptyExpense = { type:"주유", itemName:"", qty:"1", purchasePlace:"", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptySettlement = { platform:"포이즌", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"" };
 
@@ -179,6 +179,7 @@ export default function App() {
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
   const [newReturn, setNewReturn] = useState({...emptyReturn});
+  const [editingReturn, setEditingReturn] = useState(null);
   const [stockCodeSearch, setStockCodeSearch] = useState("");
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -1008,6 +1009,8 @@ export default function App() {
               <div style={{fontSize:15,fontWeight:700}}>반품 내역</div>
               <button onClick={()=>setShowAddReturn(true)} style={btn1}>+ 반품 추가</button>
             </div>
+
+            {/* 반품 등록 폼 */}
             {showAddReturn && (
               <div style={{...cs,border:"2px solid #6d28d9"}}>
                 <div style={{fontSize:14,fontWeight:700,marginBottom:14}}>반품 등록</div>
@@ -1022,29 +1025,30 @@ export default function App() {
                   if (matchedPurchases.length===0) return <div style={{padding:"10px",color:"#9ca3af",fontSize:13}}>매입 내역이 없어요</div>;
                   return (
                     <div>
-                      <div style={lbl}>매입 내역 선택</div>
+                      <div style={lbl}>매입 내역 선택 (선택 안해도 저장 가능)</div>
                       <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
                         {matchedPurchases.map(p=>(
                           <div key={p.id} onClick={()=>setNewReturn(prev=>({...prev,productId:matchedProd.id,productName:matchedProd.name,productCode:matchedProd.code,size:p.size,purchaseId:p.id}))}
                             style={{padding:"10px 14px",borderRadius:8,border:newReturn.purchaseId===p.id?"2px solid #6d28d9":"1px solid #e5e7eb",background:newReturn.purchaseId===p.id?"#ede9fe":"#f9fafb",cursor:"pointer",fontSize:13}}>
-                            <span style={{fontWeight:600}}>{p.date}</span> · {p.size}mm · {p.qty}개 · {formatNum(p.price)}원 · {p.place||"-"}
+                            <span style={{fontWeight:600}}>{p.date}</span> · {p.size} · {p.qty}개 · {formatNum(p.price)}원 · {p.place||"-"}
                           </div>
                         ))}
                       </div>
                     </div>
                   );
                 })()}
-                {newReturn.purchaseId && (
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <div><div style={lbl}>반품 수량</div><input type="number" min="1" value={newReturn.qty} onChange={e=>setNewReturn(p=>({...p,qty:e.target.value}))} style={inp}/></div>
-                    <div><div style={lbl}>반품일</div><input type="date" value={newReturn.date} onChange={e=>setNewReturn(p=>({...p,date:e.target.value}))} style={inp}/></div>
-                    <div><div style={lbl}>반품 사유</div><input value={newReturn.reason} onChange={e=>setNewReturn(p=>({...p,reason:e.target.value}))} placeholder="예: 불량, 사이즈 오류" style={inp}/></div>
-                    <div><div style={lbl}>메모</div><input value={newReturn.memo} onChange={e=>setNewReturn(p=>({...p,memo:e.target.value}))} style={inp}/></div>
-                  </div>
-                )}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div><div style={lbl}>상품명</div><input value={newReturn.productName} onChange={e=>setNewReturn(p=>({...p,productName:e.target.value}))} placeholder="상품명 입력" style={inp}/></div>
+                  <div><div style={lbl}>품번</div><input value={newReturn.productCode} onChange={e=>setNewReturn(p=>({...p,productCode:e.target.value}))} placeholder="품번 입력" style={inp}/></div>
+                  <div><div style={lbl}>사이즈</div><input value={newReturn.size} onChange={e=>setNewReturn(p=>({...p,size:e.target.value}))} placeholder="사이즈" style={inp}/></div>
+                  <div><div style={lbl}>반품 수량</div><input type="number" min="1" value={newReturn.qty} onChange={e=>setNewReturn(p=>({...p,qty:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>반품일</div><input type="date" value={newReturn.date} onChange={e=>setNewReturn(p=>({...p,date:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>반품 사유</div><input value={newReturn.reason} onChange={e=>setNewReturn(p=>({...p,reason:e.target.value}))} placeholder="예: 불량, 사이즈 오류" style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newReturn.memo} onChange={e=>setNewReturn(p=>({...p,memo:e.target.value}))} style={inp}/></div>
+                </div>
                 <div style={{display:"flex",gap:8,marginTop:14}}>
                   <button onClick={()=>{
-                    if(!newReturn.purchaseId){alert("매입 내역을 선택해주세요!");return;}
+                    if(!newReturn.productName){alert("상품명을 입력해주세요!");return;}
                     setReturns(prev=>[...prev,{...newReturn,id:generateId(),qty:Number(newReturn.qty)||1}]);
                     setReturnCodeSearch(""); setNewReturn({...emptyReturn}); setShowAddReturn(false);
                   }} style={btn1}>저장</button>
@@ -1052,20 +1056,45 @@ export default function App() {
                 </div>
               </div>
             )}
-            {returns.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>반품 내역이 없어요</div>
-              : [...returns].reverse().map(r=>(
-                <div key={r.id} style={{...cs,marginBottom:10}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <div style={{fontWeight:700,fontSize:17}}>{r.productName} <span style={{color:"#6d28d9"}}>{r.size}mm</span></div>
-                      <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {r.productCode||"-"} · {r.date} · {r.qty}개</div>
-                      {r.reason && <div style={{fontSize:12,color:"#dc2626"}}>사유: {r.reason}</div>}
-                      {r.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {r.memo}</div>}
-                    </div>
-                    <button onClick={()=>{if(window.confirm("삭제?"))setReturns(prev=>prev.filter(x=>x.id!==r.id));}} style={{...btnDanger,fontSize:12}}>삭제</button>
-                  </div>
+
+            {/* 반품 수정 모드 */}
+            {editingReturn && (
+              <EditModal title="반품 수정"
+                onSave={()=>{setReturns(prev=>prev.map(r=>r.id===editingReturn.id?{...editingReturn,qty:Number(editingReturn.qty)||1}:r));setEditingReturn(null);}}
+                onDelete={()=>{if(window.confirm("삭제?")){moveToTrash(editingReturn,"return");setReturns(prev=>prev.filter(r=>r.id!==editingReturn.id));setEditingReturn(null);}}}
+                onClose={()=>setEditingReturn(null)}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div><div style={lbl}>상품명</div><input value={editingReturn.productName||""} onChange={e=>setEditingReturn(p=>({...p,productName:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>품번</div><input value={editingReturn.productCode||""} onChange={e=>setEditingReturn(p=>({...p,productCode:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>사이즈</div><input value={editingReturn.size||""} onChange={e=>setEditingReturn(p=>({...p,size:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>수량</div><input value={editingReturn.qty||""} onChange={e=>setEditingReturn(p=>({...p,qty:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>반품일</div><input type="date" value={editingReturn.date||""} onChange={e=>setEditingReturn(p=>({...p,date:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>사유</div><input value={editingReturn.reason||""} onChange={e=>setEditingReturn(p=>({...p,reason:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingReturn.memo||""} onChange={e=>setEditingReturn(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
-              ))
+              </EditModal>
+            )}
+
+            {returns.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>반품 내역이 없어요</div>
+              : [...returns].reverse().map(r=>{
+                const prod = products.find(p=>p.id===r.productId);
+                return (
+                  <div key={r.id} style={{...cs,marginBottom:10,cursor:"pointer"}} onClick={()=>setEditingReturn({...r})}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        {prod?.image && <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
+                        <div>
+                          <div style={{fontWeight:700,fontSize:17}}>{r.productName} {r.size && <span style={{color:"#6d28d9"}}>{r.size}</span>}</div>
+                          <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {r.productCode||"-"} · {r.date} · {r.qty}개</div>
+                          {r.reason && <div style={{fontSize:12,color:"#dc2626"}}>사유: {r.reason}</div>}
+                          {r.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {r.memo}</div>}
+                        </div>
+                      </div>
+                      <div style={{fontSize:11,color:"#6d28d9"}}>✏️ 수정</div>
+                    </div>
+                  </div>
+                );
+              })
             }
           </div>
         )}
@@ -1089,7 +1118,7 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>종류</div><select value={newExpense.type} onChange={e=>setNewExpense(prev=>({...prev,type:e.target.value}))} style={sel}>{EXPENSE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
                   <div><div style={lbl}>품명</div><input value={newExpense.itemName} onChange={e=>setNewExpense(prev=>({...prev,itemName:e.target.value}))} placeholder="품명 입력" style={inp}/></div>
-                  <div><div style={lbl}>사용처</div><input value={newExpense.usagePlace} onChange={e=>setNewExpense(prev=>({...prev,usagePlace:e.target.value}))} placeholder="사용처 입력" style={inp}/></div>
+                  <div><div style={lbl}>구매처</div><input value={newExpense.purchasePlace} onChange={e=>setNewExpense(prev=>({...prev,purchasePlace:e.target.value}))} placeholder="구매처 입력" style={inp}/></div>
                   <div><div style={lbl}>수량</div><input value={newExpense.qty} onChange={e=>setNewExpense(prev=>({...prev,qty:e.target.value}))} placeholder="수량" style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={newExpense.amount} onChange={e=>setNewExpense(prev=>({...prev,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={newExpense.date} onChange={e=>setNewExpense(prev=>({...prev,date:e.target.value}))} style={inp}/></div>
@@ -1106,7 +1135,7 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>종류</div><select value={editingExpense.type} onChange={e=>setEditingExpense(p=>({...p,type:e.target.value}))} style={sel}>{EXPENSE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
                   <div><div style={lbl}>품명</div><input value={editingExpense.itemName||""} onChange={e=>setEditingExpense(p=>({...p,itemName:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>사용처</div><input value={editingExpense.usagePlace||""} onChange={e=>setEditingExpense(p=>({...p,usagePlace:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>구매처</div><input value={editingExpense.purchasePlace||""} onChange={e=>setEditingExpense(p=>({...p,purchasePlace:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>수량</div><input value={editingExpense.qty||""} onChange={e=>setEditingExpense(p=>({...p,qty:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={editingExpense.amount||""} onChange={e=>setEditingExpense(p=>({...p,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingExpense.date||""} onChange={e=>setEditingExpense(p=>({...p,date:e.target.value}))} style={inp}/></div>
@@ -1117,8 +1146,8 @@ export default function App() {
             {expenses.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>경비 없음</div>
               : (() => {
                 const grouped = [...expenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
-                  const key = `${e.date}_${e.usagePlace||"기타"}`;
-                  if (!acc[key]) acc[key] = { date:e.date, usagePlace:e.usagePlace||"", items:[] };
+                  const key = `${e.date}_${e.purchasePlace||"기타"}`;
+                  if (!acc[key]) acc[key] = { date:e.date, purchasePlace:e.purchasePlace||"", items:[] };
                   acc[key].items.push(e);
                   return acc;
                 }, {});
@@ -1128,7 +1157,7 @@ export default function App() {
                     <div key={key} style={{...cs,marginBottom:10}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:group.items.length>1?10:0}}>
                         <div>
-                          <div style={{fontWeight:700,fontSize:15}}>{group.date} {group.usagePlace && <span style={{color:"#6d28d9"}}>· {group.usagePlace}</span>}</div>
+                          <div style={{fontWeight:700,fontSize:15}}>{group.date} {group.purchasePlace && <span style={{color:"#6d28d9"}}>· {group.purchasePlace}</span>}</div>
                         </div>
                         <div style={{fontSize:15,fontWeight:700,color:"#dc2626"}}>{formatNum(dayTotal)}원</div>
                       </div>

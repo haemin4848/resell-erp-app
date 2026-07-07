@@ -101,7 +101,7 @@ function calcVat(price, qty) {
 const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{}, category:"신발" };
 const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", memo:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
-const emptyExpense = { type:"주유", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
+const emptyExpense = { type:"주유", itemName:"", qty:"1", usagePlace:"", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptySettlement = { platform:"포이즌", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"" };
 
@@ -1088,9 +1088,12 @@ export default function App() {
                 <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>경비 등록</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>종류</div><select value={newExpense.type} onChange={e=>setNewExpense(prev=>({...prev,type:e.target.value}))} style={sel}>{EXPENSE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                  <div><div style={lbl}>품명</div><input value={newExpense.itemName} onChange={e=>setNewExpense(prev=>({...prev,itemName:e.target.value}))} placeholder="품명 입력" style={inp}/></div>
+                  <div><div style={lbl}>사용처</div><input value={newExpense.usagePlace} onChange={e=>setNewExpense(prev=>({...prev,usagePlace:e.target.value}))} placeholder="사용처 입력" style={inp}/></div>
+                  <div><div style={lbl}>수량</div><input value={newExpense.qty} onChange={e=>setNewExpense(prev=>({...prev,qty:e.target.value}))} placeholder="수량" style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={newExpense.amount} onChange={e=>setNewExpense(prev=>({...prev,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={newExpense.date} onChange={e=>setNewExpense(prev=>({...prev,date:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>메모</div><input value={newExpense.memo} onChange={e=>setNewExpense(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newExpense.memo} onChange={e=>setNewExpense(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
                 <div style={{display:"flex",gap:8,marginTop:12}}><button onClick={addExpense} style={btn1}>저장</button><button onClick={()=>setShowAddExpense(false)} style={btn2}>취소</button></div>
               </div>
@@ -1102,21 +1105,48 @@ export default function App() {
                 onClose={()=>setEditingExpense(null)}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>종류</div><select value={editingExpense.type} onChange={e=>setEditingExpense(p=>({...p,type:e.target.value}))} style={sel}>{EXPENSE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                  <div><div style={lbl}>품명</div><input value={editingExpense.itemName||""} onChange={e=>setEditingExpense(p=>({...p,itemName:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>사용처</div><input value={editingExpense.usagePlace||""} onChange={e=>setEditingExpense(p=>({...p,usagePlace:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>수량</div><input value={editingExpense.qty||""} onChange={e=>setEditingExpense(p=>({...p,qty:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={editingExpense.amount||""} onChange={e=>setEditingExpense(p=>({...p,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingExpense.date||""} onChange={e=>setEditingExpense(p=>({...p,date:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>메모</div><input value={editingExpense.memo||""} onChange={e=>setEditingExpense(p=>({...p,memo:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingExpense.memo||""} onChange={e=>setEditingExpense(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
               </EditModal>
             )}
             {expenses.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>경비 없음</div>
-              : [...expenses].reverse().map(e=>(
-                <div key={e.id} style={{...cs,marginBottom:10,cursor:"pointer"}} onClick={()=>setEditingExpense({...e})}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div><div style={{fontWeight:700,fontSize:14}}>{e.type}</div><div style={{fontSize:11,color:"#6b7280"}}>{e.date} {e.memo&&`· ${e.memo}`}</div></div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#dc2626"}}>{formatNum(e.amount)}원</div>
-                  </div>
-                </div>
-              ))
+              : (() => {
+                const grouped = [...expenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
+                  const key = `${e.date}_${e.usagePlace||"기타"}`;
+                  if (!acc[key]) acc[key] = { date:e.date, usagePlace:e.usagePlace||"", items:[] };
+                  acc[key].items.push(e);
+                  return acc;
+                }, {});
+                return Object.entries(grouped).map(([key, group]) => {
+                  const dayTotal = group.items.reduce((s,e)=>s+Number(e.amount||0)*Number(e.qty||1),0);
+                  return (
+                    <div key={key} style={{...cs,marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:group.items.length>1?10:0}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:15}}>{group.date} {group.usagePlace && <span style={{color:"#6d28d9"}}>· {group.usagePlace}</span>}</div>
+                        </div>
+                        <div style={{fontSize:15,fontWeight:700,color:"#dc2626"}}>{formatNum(dayTotal)}원</div>
+                      </div>
+                      {group.items.map(e=>(
+                        <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderTop:"1px solid #f3f4f6",cursor:"pointer"}} onClick={()=>setEditingExpense({...e})}>
+                          <div>
+                            <span style={{fontSize:13,fontWeight:600}}>{e.type}</span>
+                            {e.itemName && <span style={{fontSize:13,color:"#6b7280"}}> · {e.itemName}</span>}
+                            {e.qty && Number(e.qty)>1 && <span style={{fontSize:13,color:"#9ca3af"}}> × {e.qty}</span>}
+                            {e.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {e.memo}</div>}
+                          </div>
+                          <div style={{fontSize:13,fontWeight:600,color:"#dc2626"}}>{formatNum(Number(e.amount||0)*Number(e.qty||1))}원</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                });
+              })()
             }
           </div>
         )}

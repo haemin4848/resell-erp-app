@@ -816,6 +816,7 @@ export default function App() {
               })()
             }
           </div>
+        </div>
         )}
 
         {/* 매출 */}
@@ -943,6 +944,7 @@ export default function App() {
               })()
             }
           </div>
+        </div>
         )}
 
         {/* 재고현황 */}
@@ -1351,5 +1353,6 @@ export default function App() {
 
       </div>
     </div>
+  </div>
   );
 }

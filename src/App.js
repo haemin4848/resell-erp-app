@@ -823,9 +823,10 @@ export default function App() {
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:15,fontWeight:700}}>매출 내역</div>
-              <div style={{display:"flex",gap:8}}>
-                <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:140,fontSize:12,padding:"6px 10px"}}/>
-                <input type="date" value={exportDateTo} onChange={e=>setExportDateTo(e.target.value)} style={{...inp,width:140,fontSize:12,padding:"6px 10px"}}/>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
+                <span style={{fontSize:12,color:"#9ca3af"}}>~</span>
+                <input type="date" value={exportDateTo} onChange={e=>setExportDateTo(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>{ const rows=[["날짜","품번","상품명","사이즈","플랫폼","판매가","수량","수수료","배송비","수익","수익율","메모"]]; sales.forEach(s=>{const{profit,profitRate}=calcProfit(s);rows.push([s.date,s.productCode||"",s.productName||"",s.size||"",s.platform==="기타"?s.platformOther||"기타":s.platform,s.price,s.qty,s.fee||0,s.shipping||0,profit,`${profitRate.toFixed(1)}%`,s.memo||""]);}); exportToCSV(rows,"매출내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
                 <button onClick={()=>setShowAddSale(true)} style={btn1}>+ 매출 추가</button>

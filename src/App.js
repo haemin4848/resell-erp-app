@@ -311,7 +311,7 @@ export default function App() {
 
   // 3번: 품번으로 자동 검색
   // 3번: 품번 정규화 - 공백/하이픈 무시
-  const normalizeCode = (code) => code.replace(/[\s\-]/g, "").toLowerCase();
+  const normalizeCode = (code) => code.replace(/[\s-]/g, "").toLowerCase();
 
   const handleCodeInput = (code, type) => {
     const found = products.find(p => p.code && normalizeCode(p.code)===normalizeCode(code));

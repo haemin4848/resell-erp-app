@@ -827,7 +827,7 @@ export default function App() {
                 <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
                 <span style={{fontSize:12,color:"#9ca3af"}}>~</span>
                 <input type="date" value={exportDateTo} onChange={e=>setExportDateTo(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
-                <button onClick={()=>{ const filtered=[...sales].filter(s=>(!exportDateFrom||s.date>=exportDateFrom)&&(!exportDateTo||s.date<=exportDateTo)).sort((a,b)=>a.date.localeCompare(b.date)); const rows=[["날짜","품번","상품명","사이즈","플랫폼","판매가","수량","수수료","배송비","수익","수익율","메모"]]; filtered.forEach(s=>{const{profit,profitRate}=calcProfit(s);rows.push([s.date,s.productCode||"",s.productName||"",s.size||"",s.platform==="기타"?s.platformOther||"기타":s.platform,s.price,s.qty,s.fee||0,s.shipping||0,profit,`${profitRate.toFixed(1)}%`,s.memo||""]);}); exportToCSV(rows,"매출내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
+                <button onClick={()=>{ const filtered=[...sales].filter(s=>(!exportDateFrom||s.date>=exportDateFrom)&&(!exportDateTo||s.date<=exportDateTo)).sort((a,b)=>a.date.localeCompare(b.date)); const rows=[["날짜","품번","상품명","사이즈","플랫폼","판매가","수량","수수료","배송비","수익","수익율","메모"]]; filtered.forEach(s=>{const{profit,profitRate}=calcProfit(s);rows.push([s.date,s.productCode||"",s.productName||"",s.size||"",s.platform==="기타"?s.platformOther||"기타":s.platform,s.price,s.qty,s.fee||0,s.shipping||0,profit,profitRate.toFixed(1)+"%",s.memo||""]);}); exportToCSV(rows,"매출내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
                 <button onClick={()=>setShowAddSale(true)} style={btn1}>+ 매출 추가</button>
               </div>
             </div>
@@ -1349,7 +1349,6 @@ export default function App() {
         )}
 
       </div>
-    </div>
     </div>
   );
 }

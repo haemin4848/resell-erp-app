@@ -98,6 +98,60 @@ function calcVat(price, qty) {
   return { supply, vat: supply * 0.1 };
 }
 
+// ---- 영수증 정리 헬퍼 ----
+function parseAmt(s) { const n = (s || "").replace(/[^\d]/g, ""); return n ? parseInt(n, 10) : 0; }
+
+const RECEIPT_PAPER = {
+  A4:     { w: 210, h: 297, label: "A4 210×297mm" },
+  A4L:    { w: 297, h: 210, label: "A4 297×210mm" },
+  A3:     { w: 297, h: 420, label: "A3 297×420mm" },
+  Letter: { w: 216, h: 279, label: "Letter" },
+};
+const RECEIPT_COLS = { 2: 1, 4: 2, 6: 2, 9: 3, 12: 3 };
+
+function loadReceiptImg(src) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = src;
+  });
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function clipReceiptText(ctx, text, maxW) {
+  if (!text) return "";
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+  return t + "…";
+}
+
+function drawReceiptImg(ctx, img, rot, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  const r = ((rot % 360) + 360) % 360;
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.rotate((r * Math.PI) / 180);
+  const cw = (r === 90 || r === 270) ? h : w;
+  const ch = (r === 90 || r === 270) ? w : h;
+  const inset = Math.min(cw, ch) * 0.05;
+  const aw = cw - inset * 2, ah = ch - inset * 2;
+  const scale = Math.min(aw / img.naturalWidth, ah / img.naturalHeight);
+  const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+  ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+  ctx.restore();
+}
+
 const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{}, category:"신발" };
 const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", memo:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
@@ -175,6 +229,7 @@ export default function App() {
   const [settlements, setSettlements] = useDB("settlements");
   const [returns, setReturns] = useDB("returns");
   const [trash, setTrash] = useDB("trash");
+  const [receipts, setReceipts] = useDB("receipts");
   const loaded = prodLoaded && salesLoaded && purchLoaded;
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
@@ -208,6 +263,10 @@ export default function App() {
   const imageInputRef = useRef(null);
   const editImageRef = useRef(null);
   const importRef = useRef(null);
+  const receiptFileRef = useRef(null);
+  const [receiptTitle, setReceiptTitle] = useState("");
+  const [receiptPaper, setReceiptPaper] = useState("A4");
+  const [receiptPerPage, setReceiptPerPage] = useState("6");
 
   // 8번: 삭제 → 휴지통
   const moveToTrash = (item, type) => {
@@ -328,6 +387,7 @@ export default function App() {
   const totalExpenses = expenses.reduce((s,x) => s+Number(x.amount||0), 0);
   const totalSettled = settlements.reduce((s,x) => s+Number(x.amount||0), 0);
   const totalVatRefund = purchases.reduce((s,p) => s+calcVat(p.price,p.qty).vat, 0);
+  const receiptTotal = receipts.reduce((s,r) => s+parseAmt(r.amt), 0);
 
   // 2번: 기존 상품 재고 일괄 0 초기화
   const resetAllStockToZero = () => {
@@ -388,6 +448,132 @@ export default function App() {
     setNewSettlement({...emptySettlement}); setShowAddSettlement(false);
   };
 
+  // ---- 영수증 정리 ----
+  const addReceiptFiles = (files) => {
+    const imgs = [...files].filter(f => f.type && f.type.startsWith("image/"));
+    imgs.forEach(f => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setReceipts(prev => [...prev, { id: generateId(), src: e.target.result, rot: 0, desc: "", amt: "" }]);
+      };
+      reader.readAsDataURL(f);
+    });
+  };
+
+  const updateReceipt = (id, patch) => {
+    setReceipts(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+  };
+
+  const deleteReceipt = (id) => {
+    setReceipts(prev => prev.filter(r => r.id !== id));
+  };
+
+  const reorderReceipt = (from, to) => {
+    if (to < 0 || to >= receipts.length) return;
+    setReceipts(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
+
+  const exportReceiptImages = async () => {
+    if (receipts.length === 0) { alert("먼저 영수증을 추가해주세요."); return; }
+    try {
+      const perPage = Number(receiptPerPage);
+      const cols = RECEIPT_COLS[perPage];
+      const rows = Math.ceil(perPage / cols);
+      const paper = RECEIPT_PAPER[receiptPaper];
+      const title = receiptTitle.trim() || "영수증 정리";
+      const pageCount = Math.max(1, Math.ceil(receipts.length / perPage));
+      const DPI = 200, ppm = DPI / 25.4;
+      const W = Math.round(paper.w * ppm), H = Math.round(paper.h * ppm);
+      const pad = Math.round(W * 0.05), gap = Math.round(pad * 0.55), headH = Math.round(W * 0.05);
+      const imgEls = await Promise.all(receipts.map(r => loadReceiptImg(r.src)));
+      const safeName = title.replace(/[\\/:*?"<>|]/g, "_");
+
+      for (let p = 0; p < pageCount; p++) {
+        const cv = document.createElement("canvas");
+        cv.width = W; cv.height = H;
+        const ctx = cv.getContext("2d");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+
+        ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.fillStyle = "#1c1a17";
+        const tfs = Math.round(W * 0.024);
+        ctx.font = `800 ${tfs}px Pretendard, sans-serif`;
+        ctx.fillText(title, pad, pad + tfs);
+        ctx.textAlign = "right"; ctx.fillStyle = "#8a8378";
+        ctx.font = `${Math.round(W * 0.012)}px monospace`;
+        ctx.fillText(`${paper.label}   page ${p + 1}/${pageCount}`, W - pad, pad + tfs * 0.7);
+        ctx.textAlign = "left";
+
+        const lineY = pad + headH;
+        ctx.strokeStyle = "#1c1a17"; ctx.lineWidth = Math.max(2, W * 0.0016);
+        ctx.beginPath(); ctx.moveTo(pad, lineY); ctx.lineTo(W - pad, lineY); ctx.stroke();
+
+        const gridTop = lineY + gap, gridW = W - pad * 2, footH = Math.round(W * 0.05);
+        const gridH = H - gridTop - pad - footH;
+        const cellW = (gridW - gap * (cols - 1)) / cols;
+        const cellH = (gridH - gap * (rows - 1)) / rows;
+        const memoH = Math.max(34, Math.round(cellH * 0.14));
+        const radius = Math.round(W * 0.006);
+
+        for (let i = 0; i < perPage; i++) {
+          const idx = p * perPage + i;
+          if (idx >= receipts.length) break;
+          const col = i % cols, row = Math.floor(i / cols);
+          const cx = pad + col * (cellW + gap);
+          const cy = gridTop + row * (cellH + gap);
+          const imgH = cellH - memoH;
+
+          ctx.fillStyle = "#f7f5f0"; ctx.fillRect(cx, cy, cellW, imgH);
+          drawReceiptImg(ctx, imgEls[idx], receipts[idx].rot, cx, cy, cellW, imgH);
+
+          ctx.strokeStyle = "#e4ded3"; ctx.lineWidth = Math.max(1, W * 0.0008);
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath(); ctx.moveTo(cx, cy + imgH); ctx.lineTo(cx + cellW, cy + imgH); ctx.stroke();
+          ctx.setLineDash([]);
+
+          const fs = Math.round(memoH * 0.42), baseY = cy + imgH + memoH * 0.62;
+          ctx.font = `600 ${fs}px Pretendard, sans-serif`;
+          ctx.fillStyle = "#1c1a17"; ctx.textAlign = "left";
+          ctx.fillText(clipReceiptText(ctx, receipts[idx].desc, cellW * 0.62 - fs), cx + fs * 0.6, baseY);
+          ctx.fillStyle = "#6d28d9"; ctx.textAlign = "right";
+          ctx.font = `600 ${fs}px monospace`;
+          ctx.fillText(receipts[idx].amt ? "₩" + receipts[idx].amt : "", cx + cellW - fs * 0.6, baseY);
+          ctx.textAlign = "left";
+
+          ctx.strokeStyle = "#e4ded3"; ctx.lineWidth = Math.max(1, W * 0.0008);
+          roundRectPath(ctx, cx, cy, cellW, cellH, radius); ctx.stroke();
+        }
+
+        const footTop = gridTop + gridH + gap;
+        ctx.strokeStyle = "#1c1a17"; ctx.lineWidth = Math.max(2, W * 0.0016);
+        ctx.beginPath(); ctx.moveTo(pad, footTop); ctx.lineTo(W - pad, footTop); ctx.stroke();
+
+        const sumStr = "₩" + formatNum(receiptTotal);
+        const fy = footTop + footH * 0.62, afs = Math.round(footH * 0.5);
+        ctx.textAlign = "right"; ctx.fillStyle = "#6d28d9";
+        ctx.font = `700 ${afs}px monospace`;
+        ctx.fillText(sumStr, W - pad, fy);
+        const sumW = ctx.measureText(sumStr).width;
+        const lfs = Math.round(footH * 0.36);
+        ctx.font = `700 ${lfs}px Pretendard, sans-serif`;
+        ctx.fillStyle = "#8a8378";
+        ctx.fillText("총 합계", W - pad - sumW - afs * 0.6, fy);
+        ctx.textAlign = "left";
+
+        const url = cv.toDataURL("image/jpeg", 0.92);
+        const fname = pageCount > 1 ? `${safeName}_${p + 1}.jpg` : `${safeName}.jpg`;
+        const a = document.createElement("a"); a.href = url; a.download = fname; a.click();
+      }
+    } catch (e) {
+      console.error(e);
+      alert("이미지 생성 중 문제가 발생했어요. 다시 시도해주세요.");
+    }
+  };
+
   // 5번: 메뉴 순서
   const tabs = [
     {id:"dashboard",label:"📊 대시보드"},
@@ -400,6 +586,7 @@ export default function App() {
     {id:"expenses",label:"💸 경비"},
     {id:"settlements",label:"🏦 정산"},
     {id:"funding",label:"💳 매입자금"},
+    {id:"receipts",label:"🧾 영수증"},
     {id:"trash",label:"🗑️ 휴지통"},
   ];
 
@@ -1367,6 +1554,97 @@ export default function App() {
                   })}
                 </div>
               );
+            })()}
+          </div>
+        )}
+
+        {/* 영수증 정리 */}
+        {tab==="receipts" && (
+          <div>
+            <div style={{...cs, marginBottom:16}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end",marginBottom:12}}>
+                <div style={{flex:"1 1 220px"}}>
+                  <div style={lbl}>제목</div>
+                  <input value={receiptTitle} onChange={e=>setReceiptTitle(e.target.value)} placeholder="예: 2026년 6월 경비 영수증" style={inp}/>
+                </div>
+                <div style={{flex:"0 0 140px"}}>
+                  <div style={lbl}>용지</div>
+                  <select value={receiptPaper} onChange={e=>setReceiptPaper(e.target.value)} style={sel}>
+                    <option value="A4">A4 (세로)</option>
+                    <option value="A4L">A4 (가로)</option>
+                    <option value="A3">A3 (세로)</option>
+                    <option value="Letter">Letter</option>
+                  </select>
+                </div>
+                <div style={{flex:"0 0 140px"}}>
+                  <div style={lbl}>페이지당</div>
+                  <select value={receiptPerPage} onChange={e=>setReceiptPerPage(e.target.value)} style={sel}>
+                    <option value="2">2개 (1×2)</option>
+                    <option value="4">4개 (2×2)</option>
+                    <option value="6">6개 (2×3)</option>
+                    <option value="9">9개 (3×3)</option>
+                    <option value="12">12개 (3×4)</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div style={{fontSize:13,color:"#6b7280"}}>
+                  영수증 <b>{receipts.length}</b>장 · <b>{Math.max(1,Math.ceil(receipts.length/Number(receiptPerPage)))}</b>페이지 · 합계 <b style={{color:"#6d28d9"}}>{formatNum(receiptTotal)}원</b>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>receiptFileRef.current.click()} style={btn2}>+ 영수증 추가</button>
+                  <input ref={receiptFileRef} type="file" accept="image/*" multiple onChange={e=>{addReceiptFiles(e.target.files); e.target.value="";}} style={{display:"none"}}/>
+                  <button onClick={exportReceiptImages} style={btn1}>🧾 JPG로 저장</button>
+                </div>
+              </div>
+            </div>
+
+            {receipts.length===0 ? (
+              <div style={{...cs,textAlign:"center",color:"#9ca3af",padding:40}}>영수증 사진을 추가해주세요</div>
+            ) : (() => {
+              const perPage = Number(receiptPerPage);
+              const cols = RECEIPT_COLS[perPage];
+              const pageCount = Math.max(1, Math.ceil(receipts.length/perPage));
+              const pageNums = Array.from({length:pageCount}, (_,p)=>p);
+              return pageNums.map(p => (
+                <div key={p} style={{...cs,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",borderBottom:"2px solid #111",paddingBottom:8,marginBottom:12}}>
+                    <div style={{fontWeight:800,fontSize:15}}>{receiptTitle.trim()||"영수증 정리"}</div>
+                    <div style={{fontSize:11,color:"#9ca3af"}}>{RECEIPT_PAPER[receiptPaper].label} · {p+1}/{pageCount}페이지</div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:10}}>
+                    {Array.from({length:perPage}).map((_,i) => {
+                      const idx = p*perPage+i;
+                      const rec = receipts[idx];
+                      if (!rec) return <div key={i} style={{border:"1px dashed #e5e7eb",borderRadius:8,minHeight:120}}/>;
+                      return (
+                        <div key={rec.id} style={{border:"1px solid #e5e7eb",borderRadius:8,overflow:"hidden",background:"#fff"}}>
+                          <div style={{height:150,background:"#f9fafb",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                            <img src={rec.src} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",transform:`rotate(${rec.rot}deg)`}}/>
+                          </div>
+                          <div style={{display:"flex",gap:4,padding:"4px 6px",borderTop:"1px dashed #e5e7eb"}}>
+                            <button onClick={()=>updateReceipt(rec.id,{rot:rec.rot-90})} style={{...btn2,padding:"3px 8px",fontSize:11}}>↺</button>
+                            <button onClick={()=>updateReceipt(rec.id,{rot:rec.rot+90})} style={{...btn2,padding:"3px 8px",fontSize:11}}>↻</button>
+                            <button onClick={()=>reorderReceipt(idx,idx-1)} style={{...btn2,padding:"3px 8px",fontSize:11}}>◀</button>
+                            <button onClick={()=>reorderReceipt(idx,idx+1)} style={{...btn2,padding:"3px 8px",fontSize:11}}>▶</button>
+                            <button onClick={()=>deleteReceipt(rec.id)} style={{...btnDanger,padding:"3px 8px",fontSize:11,marginLeft:"auto"}}>✕</button>
+                          </div>
+                          <div style={{display:"flex",gap:4,padding:"4px 6px 6px"}}>
+                            <input value={rec.desc} onChange={e=>updateReceipt(rec.id,{desc:e.target.value})} placeholder="거래처/항목" style={{...inp,fontSize:11,padding:"5px 8px",flex:1}}/>
+                            <input value={rec.amt} onChange={e=>updateReceipt(rec.id,{amt:e.target.value})}
+                              onBlur={e=>{const n=e.target.value.replace(/[^\d]/g,""); updateReceipt(rec.id,{amt:n?Number(n).toLocaleString("ko-KR"):""});}}
+                              placeholder="금액" inputMode="numeric" style={{...inp,fontSize:11,padding:"5px 8px",width:80,textAlign:"right",color:"#6d28d9",fontWeight:700}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"flex-end",gap:8,borderTop:"2px solid #111",marginTop:12,paddingTop:8}}>
+                    <span style={{fontSize:12,fontWeight:700,color:"#9ca3af"}}>총 합계</span>
+                    <span style={{fontSize:16,fontWeight:800,color:"#6d28d9"}}>{formatNum(receiptTotal)}원</span>
+                  </div>
+                </div>
+              ));
             })()}
           </div>
         )}

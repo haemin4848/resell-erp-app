@@ -193,6 +193,9 @@ export default function App() {
   const [showAddSettlement, setShowAddSettlement] = useState(false);
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
+  const [expandedExpenseDate, setExpandedExpenseDate] = useState(null);
+  const [selectedFundingKey, setSelectedFundingKey] = useState(null);
+  const [expandedFundingDate, setExpandedFundingDate] = useState(null);
   const [scanInput, setScanInput] = useState("");
   const [scanResult, setScanResult] = useState(null);
   const [scanMode, setScanMode] = useState("in");
@@ -695,7 +698,7 @@ export default function App() {
                 <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}} placeholder="시작일"/>
                 <span style={{fontSize:12,color:"#9ca3af"}}>~</span>
                 <input type="date" value={exportDateTo} onChange={e=>setExportDateTo(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}} placeholder="종료일"/>
-                <button onClick={()=>{ const filtered=[...purchases].filter(p=>(!exportDateFrom||p.date>=exportDateFrom)&&(!exportDateTo||p.date<=exportDateTo)).sort((a,b)=>a.date.localeCompare(b.date)); const rows=[["날짜","품번","상품명","사이즈","매입가","공급가액","부가세","수량","합계","매입장소","결제수단","메모"]]; filtered.forEach(p=>{const{supply,vat}=calcVat(p.price,p.qty);rows.push([p.date,p.productCode||"",p.productName||"",p.size||"",p.price,Math.round(supply),Math.round(vat),p.qty,p.price*p.qty,p.place||"",p.payType||"",p.memo||""]);}); exportToCSV(rows,"매입내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
+                <button onClick={()=>{ const filtered=[...purchases].filter(p=>(!exportDateFrom||p.date>=exportDateFrom)&&(!exportDateTo||p.date<=exportDateTo)).sort((a,b)=>a.date.localeCompare(b.date)); const rows=[["날짜","품번","상품명","사이즈","매입가","공급가액","부가세","수량","합계","매입장소","결제수단","메모"]]; filtered.forEach(p=>{const{supply,vat}=calcVat(p.price,p.qty);const fmt=n=>Number(n||0).toLocaleString("ko-KR");rows.push([p.date,p.productCode||"",p.productName||"",p.size||"",fmt(p.price),fmt(Math.round(supply)),fmt(Math.round(vat)),p.qty,fmt(p.price*p.qty),p.place||"",p.payType||"",p.memo||""]);}); exportToCSV(rows,"매입내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
                 <button onClick={()=>setShowAddPurchase(true)} style={btn1}>+ 매입 추가</button>
               </div>
             </div>
@@ -827,7 +830,7 @@ export default function App() {
                 <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
                 <span style={{fontSize:12,color:"#9ca3af"}}>~</span>
                 <input type="date" value={exportDateTo} onChange={e=>setExportDateTo(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
-                <button onClick={()=>{ const filtered=[...sales].filter(s=>(!exportDateFrom||s.date>=exportDateFrom)&&(!exportDateTo||s.date<=exportDateTo)).sort((a,b)=>a.date.localeCompare(b.date)); const rows=[["날짜","품번","상품명","사이즈","플랫폼","판매가","수량","수수료","배송비","수익","수익율","메모"]]; filtered.forEach(s=>{const{profit,profitRate}=calcProfit(s);rows.push([s.date,s.productCode||"",s.productName||"",s.size||"",s.platform==="기타"?s.platformOther||"기타":s.platform,s.price,s.qty,s.fee||0,s.shipping||0,profit,profitRate.toFixed(1)+"%",s.memo||""]);}); exportToCSV(rows,"매출내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
+                <button onClick={()=>{ const filtered=[...sales].filter(s=>(!exportDateFrom||s.date>=exportDateFrom)&&(!exportDateTo||s.date<=exportDateTo)).sort((a,b)=>a.date.localeCompare(b.date)); const rows=[["날짜","품번","상품명","사이즈","플랫폼","판매가","수량","수수료","배송비","수익","수익율","메모"]]; filtered.forEach(s=>{const{profit,profitRate}=calcProfit(s);const fmt=n=>Number(n||0).toLocaleString("ko-KR");rows.push([s.date,s.productCode||"",s.productName||"",s.size||"",s.platform==="기타"?s.platformOther||"기타":s.platform,fmt(s.price),s.qty,fmt(s.fee||0),fmt(s.shipping||0),fmt(profit),profitRate.toFixed(1)+"%",s.memo||""]);}); exportToCSV(rows,"매출내역.csv"); }} style={{...btn2,fontSize:12}}>📥 엑셀</button>
                 <button onClick={()=>setShowAddSale(true)} style={btn1}>+ 매출 추가</button>
               </div>
             </div>
@@ -1179,32 +1182,42 @@ export default function App() {
             {expenses.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>경비 없음</div>
               : (() => {
                 const grouped = [...expenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
-                  const key = `${e.date}_${e.purchasePlace||"기타"}`;
-                  if (!acc[key]) acc[key] = { date:e.date, purchasePlace:e.purchasePlace||"", items:[] };
-                  acc[key].items.push(e);
+                  if (!acc[e.date]) acc[e.date] = [];
+                  acc[e.date].push(e);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([key, group]) => {
-                  const dayTotal = group.items.reduce((s,e)=>s+Number(e.amount||0)*Number(e.qty||1),0);
+                return Object.entries(grouped).map(([date, items]) => {
+                  const dayTotal = items.reduce((s,e)=>s+Number(e.amount||0)*Number(e.qty||1),0);
+                  const isExpanded = expandedExpenseDate === date;
                   return (
-                    <div key={key} style={{...cs,marginBottom:10}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:group.items.length>1?10:0}}>
-                        <div>
-                          <div style={{fontWeight:700,fontSize:15}}>{group.date} {group.purchasePlace && <span style={{color:"#6d28d9"}}>· {group.purchasePlace}</span>}</div>
+                    <div key={date} style={{...cs,marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}
+                        onClick={()=>setExpandedExpenseDate(isExpanded ? null : date)}>
+                        <div style={{fontWeight:700,fontSize:15}}>{date}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{fontSize:15,fontWeight:700,color:"#dc2626"}}>{formatNum(dayTotal)}원</div>
+                          <span style={{fontSize:12,color:"#9ca3af"}}>{isExpanded?"▲":"▼"}</span>
                         </div>
-                        <div style={{fontSize:15,fontWeight:700,color:"#dc2626"}}>{formatNum(dayTotal)}원</div>
                       </div>
-                      {group.items.map(e=>(
-                        <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderTop:"1px solid #f3f4f6",cursor:"pointer"}} onClick={()=>setEditingExpense({...e})}>
-                          <div>
-                            <span style={{fontSize:13,fontWeight:600}}>{e.type}</span>
-                            {e.itemName && <span style={{fontSize:13,color:"#6b7280"}}> · {e.itemName}</span>}
-                            {e.qty && Number(e.qty)>1 && <span style={{fontSize:13,color:"#9ca3af"}}> × {e.qty}</span>}
-                            {e.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {e.memo}</div>}
-                          </div>
-                          <div style={{fontSize:13,fontWeight:600,color:"#dc2626"}}>{formatNum(Number(e.amount||0)*Number(e.qty||1))}원</div>
+                      {isExpanded && (
+                        <div style={{marginTop:10,borderTop:"1px solid #f3f4f6",paddingTop:10}}>
+                          {items.map(e=>(
+                            <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid #f9fafb",cursor:"pointer"}} onClick={()=>setEditingExpense({...e})}>
+                              <div>
+                                <span style={{fontSize:13,fontWeight:600}}>{e.type}</span>
+                                {e.itemName && <span style={{fontSize:13,color:"#6b7280"}}> · {e.itemName}</span>}
+                                {e.purchasePlace && <span style={{fontSize:13,color:"#9ca3af"}}> · {e.purchasePlace}</span>}
+                                {e.qty && Number(e.qty)>1 && <span style={{fontSize:12,color:"#9ca3af"}}> × {e.qty}</span>}
+                                {e.memo && <div style={{fontSize:11,color:"#9ca3af"}}>메모: {e.memo}</div>}
+                              </div>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                <span style={{fontSize:13,fontWeight:600,color:"#dc2626"}}>{formatNum(Number(e.amount||0)*Number(e.qty||1))}원</span>
+                                <span style={{fontSize:11,color:"#9ca3af"}}>✏️</span>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   );
                 });
@@ -1268,55 +1281,93 @@ export default function App() {
         {tab==="funding" && (
           <div>
             <div style={{fontSize:15,fontWeight:700,marginBottom:16}}>매입자금 현황</div>
-            {(() => {
-              // 월별 그룹핑
-              const monthly = [...purchases].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
-                const month = p.date.slice(0,7);
-                if (!acc[month]) acc[month] = {};
-                // 결제수단 키 생성
+            {purchases.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>매입 내역이 없어요</div> : (() => {
+              // 결제수단별 그룹핑
+              const payGroups = [...purchases].reduce((acc,p)=>{
                 let payKey = p.payType;
                 if (p.payType==="카드" && p.cardType) payKey = `카드_${p.cardType}`;
                 else if (p.payType==="페이" && p.payBrand) payKey = `페이_${p.payBrand}`;
                 else if (p.payType==="계좌이체" && p.bankType) payKey = `계좌이체_${p.bankType}`;
                 else if (p.payType==="기타" && p.payOther) payKey = `기타_${p.payOther}`;
-                if (!acc[month][payKey]) acc[month][payKey] = { items:[], total:0 };
-                acc[month][payKey].items.push(p);
-                acc[month][payKey].total += Number(p.price||0)*Number(p.qty||1);
+                if (!acc[payKey]) acc[payKey] = { items:[], total:0 };
+                acc[payKey].items.push(p);
+                acc[payKey].total += Number(p.price||0)*Number(p.qty||1);
                 return acc;
               }, {});
 
-              return Object.entries(monthly).map(([month, payGroups]) => {
-                const monthTotal = Object.values(payGroups).reduce((s,g)=>s+g.total,0);
+              // 선택된 소분류가 없으면 목록 표시
+              if (!selectedFundingKey) {
                 return (
-                  <div key={month} style={{...cs,marginBottom:16}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                      <div style={{fontSize:15,fontWeight:700,color:"#6d28d9"}}>{month}</div>
-                      <div style={{fontSize:15,fontWeight:700,color:"#d97706"}}>합계 {formatNum(monthTotal)}원</div>
-                    </div>
-                    {Object.entries(payGroups).map(([payKey, group]) => {
+                  <div>
+                    {Object.entries(payGroups).sort((a,b)=>b[1].total-a[1].total).map(([payKey, group]) => {
                       const [payType, payDetail] = payKey.includes("_") ? payKey.split("_") : [payKey, ""];
                       return (
-                        <div key={payKey} style={{marginBottom:12,borderBottom:"1px solid #f3f4f6",paddingBottom:12}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                            <div style={{fontWeight:700,fontSize:14,color:"#374151"}}>
-                              {payType} {payDetail && <span style={{color:"#6d28d9"}}>({payDetail})</span>}
+                        <div key={payKey} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>{setSelectedFundingKey(payKey);setExpandedFundingDate(null);}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div>
+                              <div style={{fontWeight:700,fontSize:15}}>{payType} {payDetail && <span style={{color:"#6d28d9"}}>({payDetail})</span>}</div>
+                              <div style={{fontSize:12,color:"#9ca3af"}}>{group.items.length}건</div>
                             </div>
-                            <div style={{fontWeight:700,fontSize:14,color:"#d97706"}}>{formatNum(group.total)}원</div>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{fontWeight:700,fontSize:15,color:"#d97706"}}>{formatNum(group.total)}원</div>
+                              <span style={{color:"#9ca3af"}}>▶</span>
+                            </div>
                           </div>
-                          {group.items.map(p=>(
-                            <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12,color:"#6b7280"}}>
-                              <span>{p.date} · {p.productName} {p.size&&`${p.size}`} · {p.qty}개</span>
-                              <span>{formatNum(Number(p.price)*Number(p.qty||1))}원</span>
-                            </div>
-                          ))}
                         </div>
                       );
                     })}
                   </div>
                 );
-              });
+              }
+
+              // 소분류 선택됨 → 날짜별 합계 표시
+              const group = payGroups[selectedFundingKey];
+              const [payType, payDetail] = selectedFundingKey.includes("_") ? selectedFundingKey.split("_") : [selectedFundingKey, ""];
+              const dateGroups = group.items.sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
+                if (!acc[p.date]) acc[p.date] = { items:[], total:0 };
+                acc[p.date].items.push(p);
+                acc[p.date].total += Number(p.price||0)*Number(p.qty||1);
+                return acc;
+              }, {});
+
+              return (
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                    <button onClick={()=>setSelectedFundingKey(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                    <div style={{fontWeight:700,fontSize:15}}>{payType} {payDetail && `(${payDetail})`}</div>
+                    <div style={{fontSize:13,color:"#d97706",marginLeft:"auto"}}>총 {formatNum(group.total)}원</div>
+                  </div>
+                  {Object.entries(dateGroups).map(([date, dg]) => {
+                    const isExpanded = expandedFundingDate === date;
+                    return (
+                      <div key={date} style={{...cs,marginBottom:8}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}
+                          onClick={()=>setExpandedFundingDate(isExpanded ? null : date)}>
+                          <div style={{fontWeight:700,fontSize:14}}>{date}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{fontWeight:700,fontSize:14,color:"#d97706"}}>{formatNum(dg.total)}원</div>
+                            <span style={{fontSize:12,color:"#9ca3af"}}>{isExpanded?"▲":"▼"}</span>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div style={{marginTop:10,borderTop:"1px solid #f3f4f6",paddingTop:10}}>
+                            {dg.items.map(p=>(
+                              <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f9fafb",fontSize:13}}>
+                                <div>
+                                  <div style={{fontWeight:600}}>{p.productName}</div>
+                                  <div style={{fontSize:12,color:"#9ca3af"}}>{p.size&&`${p.size} · `}{p.qty}개 · {p.place||"-"}</div>
+                                </div>
+                                <div style={{fontWeight:700,color:"#d97706"}}>{formatNum(Number(p.price)*Number(p.qty||1))}원</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
             })()}
-            {purchases.length===0 && <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>매입 내역이 없어요</div>}
           </div>
         )}
 

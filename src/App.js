@@ -47,6 +47,24 @@ async function dbDelete(table, id) {
   } catch {}
 }
 
+// ---- 상품 이미지를 Supabase Storage에 업로드 (DB row 용량 문제 해결) ----
+async function uploadProductImage(file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const filename = `${generateId()}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/product-images/${filename}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": file.type || "image/jpeg",
+      "x-upsert": "true"
+    },
+    body: file
+  });
+  if (!res.ok) throw new Error("이미지 업로드 실패: " + res.status);
+  return `${SUPABASE_URL}/storage/v1/object/public/product-images/${filename}`;
+}
+
 function useDB(table) {
   const [value, setValue] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -238,6 +256,7 @@ export default function App() {
   const [stockCodeSearch, setStockCodeSearch] = useState("");
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [imgUploading, setImgUploading] = useState(false);
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -290,12 +309,17 @@ export default function App() {
 
   const handleImageUpload = (e, isEdit=false) => {
     const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      if (isEdit) setEditingProduct(prev => ({ ...prev, image: ev.target.result }));
-      else setNewProduct(prev => ({ ...prev, image: ev.target.result }));
-    };
-    reader.readAsDataURL(file);
+    const setTarget = isEdit ? setEditingProduct : setNewProduct;
+    setImgUploading(true);
+    uploadProductImage(file).then(url => {
+      setTarget(prev => ({ ...prev, image: url }));
+      setImgUploading(false);
+    }).catch(err => {
+      console.error(err);
+      alert("이미지 업로드에 실패했어요. 잠시 후 다시 시도해주세요.");
+      setImgUploading(false);
+    });
+    e.target.value = "";
   };
 
   const handleImportData = (e) => {
@@ -796,6 +820,7 @@ export default function App() {
                   <div style={lbl}>이미지</div>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
                     {newProduct.image ? <img src={newProduct.image} alt="" style={{width:64,height:64,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/> : <div style={{width:64,height:64,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#9ca3af"}}>👟</div>}
+                    {imgUploading && <span style={{fontSize:12,color:"#6d28d9"}}>업로드 중...</span>}
                     <button onClick={()=>imageInputRef.current.click()} style={{...btn2,fontSize:12}}>선택</button>
                     <input ref={imageInputRef} type="file" accept="image/*" onChange={e=>handleImageUpload(e,false)} style={{display:"none"}}/>
                   </div>
@@ -834,6 +859,7 @@ export default function App() {
                   <div style={lbl}>이미지</div>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
                     {editingProduct.image ? <img src={editingProduct.image} alt="" style={{width:64,height:64,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/> : <div style={{width:64,height:64,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#9ca3af"}}>👟</div>}
+                    {imgUploading && <span style={{fontSize:12,color:"#6d28d9"}}>업로드 중...</span>}
                     <button onClick={()=>editImageRef.current.click()} style={{...btn2,fontSize:12}}>이미지 변경</button>
                     {editingProduct.image && <button onClick={()=>setEditingProduct(p=>({...p,image:""}))} style={{...btnDanger,fontSize:12}}>삭제</button>}
                     <input ref={editImageRef} type="file" accept="image/*" onChange={e=>handleImageUpload(e,true)} style={{display:"none"}}/>

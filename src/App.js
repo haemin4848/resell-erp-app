@@ -268,6 +268,7 @@ export default function App() {
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
   const [expandedExpenseDate, setExpandedExpenseDate] = useState(null);
+  const [expandedReturnDate, setExpandedReturnDate] = useState(null);
   const [selectedFundingKey, setSelectedFundingKey] = useState(null);
   const [expandedFundingDate, setExpandedFundingDate] = useState(null);
   const [scanInput, setScanInput] = useState("");
@@ -405,8 +406,24 @@ export default function App() {
     else setNewPurchase(prev => ({ ...prev, code, productId: found?.id||"", manualName: found ? "" : prev.manualName, size:"", sizes:{}, category: found?.category||"신발" }));
   };
 
+  // 4번: 반품 금액 계산 - 연결된 매입 내역의 단가를 기준으로 계산
+  const calcReturnAmount = (r) => {
+    let unitPrice = 0;
+    if (r.purchaseIds && r.purchaseIds.length > 0) {
+      const matched = purchases.filter(p => r.purchaseIds.includes(p.id));
+      if (matched.length > 0) unitPrice = matched.reduce((s,p)=>s+Number(p.price||0),0) / matched.length;
+    }
+    if (!unitPrice) {
+      const fallback = purchases.filter(p => p.productId === r.productId && p.size === r.size).slice(-1)[0];
+      if (fallback) unitPrice = Number(fallback.price || 0);
+    }
+    return unitPrice * Number(r.qty || 1);
+  };
+
   const totalSell = sales.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
-  const totalBuy = purchases.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
+  const totalPurchaseRaw = purchases.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
+  const totalReturnAmount = returns.reduce((s,r) => s+calcReturnAmount(r), 0);
+  const totalBuy = totalPurchaseRaw - totalReturnAmount;
   const totalProfit = sales.reduce((s,sale) => s+calcProfit(sale).profit, 0);
   const totalExpenses = expenses.reduce((s,x) => s+Number(x.amount||0), 0);
   const totalSettled = settlements.reduce((s,x) => s+Number(x.amount||0), 0);
@@ -905,8 +922,11 @@ export default function App() {
         {/* 매입 */}
         {tab==="purchases" && (
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:700}}>매입 내역</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700}}>매입 내역</div>
+                <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>총 매입금액 <span style={{color:"#d97706",fontWeight:700}}>{formatNum(totalPurchaseRaw)}원</span>{totalReturnAmount>0 && <span> (반품 차감 후 <span style={{color:"#d97706",fontWeight:700}}>{formatNum(totalBuy)}원</span>)</span>}</div>
+              </div>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                 <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}} placeholder="시작일"/>
                 <span style={{fontSize:12,color:"#9ca3af"}}>~</span>
@@ -961,7 +981,7 @@ export default function App() {
               </div>
             )}
 
-            {/* 8번: 수정 모달 */}
+            {/* 8번: 수정 모달 - 1번: 매입 등록과 동일한 양식으로 통일 */}
             {editingPurchase && (
               <EditModal title="매입 수정"
                 onSave={()=>{setPurchases(prev=>prev.map(p=>p.id===editingPurchase.id?{...editingPurchase,price:Number(editingPurchase.price)}:p));setEditingPurchase(null);}}
@@ -975,7 +995,16 @@ export default function App() {
                   <div><div style={lbl}>수량</div><input value={editingPurchase.qty||""} onChange={e=>setEditingPurchase(p=>({...p,qty:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingPurchase.date||""} onChange={e=>setEditingPurchase(p=>({...p,date:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>매입장소</div><input value={editingPurchase.place||""} onChange={e=>setEditingPurchase(p=>({...p,place:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>메모</div><input value={editingPurchase.memo||""} onChange={e=>setEditingPurchase(p=>({...p,memo:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>결제수단</div>
+                    <select value={editingPurchase.payType||"카드"} onChange={e=>setEditingPurchase(p=>({...p,payType:e.target.value}))} style={sel}>
+                      {PAYMENT_TYPES.map(pt=><option key={pt} value={pt}>{pt}</option>)}
+                    </select>
+                  </div>
+                  {editingPurchase.payType==="카드" && <div><div style={lbl}>카드사</div><select value={editingPurchase.cardType||""} onChange={e=>setEditingPurchase(p=>({...p,cardType:e.target.value}))} style={sel}>{CARD_TYPES.map(c=><option key={c} value={c}>{c}</option>)}</select></div>}
+                  {editingPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={editingPurchase.payBrand||""} onChange={e=>setEditingPurchase(p=>({...p,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(pb=><option key={pb} value={pb}>{pb}</option>)}</select></div>}
+                  {editingPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={editingPurchase.bankType||""} onChange={e=>setEditingPurchase(p=>({...p,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
+                  {editingPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchase.payOther||""} onChange={e=>setEditingPurchase(p=>({...p,payOther:e.target.value}))} style={inp}/></div>}
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingPurchase.memo||""} onChange={e=>setEditingPurchase(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
               </EditModal>
             )}
@@ -1037,8 +1066,11 @@ export default function App() {
         {/* 매출 */}
         {tab==="sales" && (
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:700}}>매출 내역</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700}}>매출 내역</div>
+                <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>총 매출금액 <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(totalSell)}원</span></div>
+              </div>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                 <input type="date" value={exportDateFrom} onChange={e=>setExportDateFrom(e.target.value)} style={{...inp,width:130,fontSize:12,padding:"6px 10px"}}/>
                 <span style={{fontSize:12,color:"#9ca3af"}}>~</span>
@@ -1163,7 +1195,8 @@ export default function App() {
         {/* 재고현황 */}
         {tab==="stock" && (
           <div>
-            <div style={{fontSize:15,fontWeight:700,marginBottom:16}}>재고 현황</div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>재고 현황</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>총 재고 수량 <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(products.reduce((s,p)=>s+Object.keys(p.sizes||{}).reduce((s2,size)=>s2+Math.max(calcStock(p.id,size),0),0),0))}개</span></div>
             <div style={cs}>
               <div style={lbl}>품번 검색</div>
               <input value={stockCodeSearch} onChange={e=>setStockCodeSearch(e.target.value)}
@@ -1233,8 +1266,11 @@ export default function App() {
         {/* 반품 */}
         {tab==="returns" && (
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:700}}>반품 내역</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700}}>반품 내역</div>
+                <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>총 반품 <span style={{color:"#dc2626",fontWeight:700}}>{formatNum(returns.reduce((s,r)=>s+Number(r.qty||1),0))}개</span> · 총 반품금액 <span style={{color:"#dc2626",fontWeight:700}}>{formatNum(totalReturnAmount)}원</span></div>
+              </div>
               <button onClick={()=>setShowAddReturn(true)} style={btn1}>+ 반품 추가</button>
             </div>
 
@@ -1313,33 +1349,58 @@ export default function App() {
 
             {returns.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>반품 내역이 없어요</div>
               : (() => {
-                const grouped = [...returns].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,r)=>{
-                  const key = `${r.date}_${r.productId||r.productName}`;
-                  if (!acc[key]) acc[key] = { date:r.date, productName:r.productName, productId:r.productId, productCode:r.productCode, items:[] };
-                  acc[key].items.push(r);
+                // 3번: 일자별로 먼저 그룹핑 (평소엔 간략히 표시)
+                const dateGroups = [...returns].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,r)=>{
+                  if (!acc[r.date]) acc[r.date] = [];
+                  acc[r.date].push(r);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([key, group]) => {
-                  const prod = products.find(p=>p.id===group.productId);
-                  const totalQty = group.items.reduce((s,r)=>s+Number(r.qty||1),0);
+                return Object.entries(dateGroups).map(([date, items]) => {
+                  const dayQty = items.reduce((s,r)=>s+Number(r.qty||1),0);
+                  const dayAmount = items.reduce((s,r)=>s+calcReturnAmount(r),0);
+                  const isExpanded = expandedReturnDate === date;
+                  // 일자 안에서는 품목별로 다시 그룹핑 (펼쳤을 때 표시)
+                  const productGroups = items.reduce((acc,r)=>{
+                    const key = r.productId || r.productName;
+                    if (!acc[key]) acc[key] = { productId:r.productId, productName:r.productName, productCode:r.productCode, items:[] };
+                    acc[key].items.push(r);
+                    return acc;
+                  }, {});
                   return (
-                    <div key={key} style={{...cs,marginBottom:10}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div key={date} style={{...cs,marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}
+                        onClick={()=>setExpandedReturnDate(isExpanded ? null : date)}>
+                        <div style={{fontWeight:700,fontSize:15}}>{date}</div>
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          {prod?.image && <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
-                          <div>
-                            <div style={{fontWeight:700,fontSize:17}}>{group.productName}</div>
-                            <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {group.productCode||"-"} · {group.date} · 총 {totalQty}개</div>
-                            {group.items.map(r=>(
-                              <div key={r.id} style={{fontSize:12,color:"#6b7280",marginTop:2,cursor:"pointer"}} onClick={()=>setEditingReturn({...r})}>
-                                {r.size && <span style={{color:"#6d28d9"}}>{r.size} </span>}{r.qty}개
-                                {r.reason && <span style={{color:"#dc2626"}}> · {r.reason}</span>}
-                                <span style={{color:"#9ca3af",marginLeft:6}}>✏️</span>
-                              </div>
-                            ))}
-                          </div>
+                          <span style={{fontSize:12,color:"#9ca3af"}}>{dayQty}개</span>
+                          <span style={{fontWeight:700,fontSize:14,color:"#dc2626"}}>{formatNum(dayAmount)}원</span>
+                          <span style={{fontSize:12,color:"#9ca3af"}}>{isExpanded?"▲":"▼"}</span>
                         </div>
                       </div>
+                      {isExpanded && (
+                        <div style={{marginTop:10,borderTop:"1px solid #f3f4f6",paddingTop:10}}>
+                          {Object.entries(productGroups).map(([key, group]) => {
+                            const prod = products.find(p=>p.id===group.productId);
+                            const groupQty = group.items.reduce((s,r)=>s+Number(r.qty||1),0);
+                            return (
+                              <div key={key} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 0",borderBottom:"1px solid #f9fafb"}}>
+                                {prod?.image ? <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:44,height:44,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>👟</div>}
+                                <div style={{flex:1}}>
+                                  <div style={{fontWeight:700,fontSize:14}}>{group.productName} <span style={{fontSize:12,color:"#9ca3af",fontWeight:400}}>· 품번 {group.productCode||"-"} · 총 {groupQty}개</span></div>
+                                  {group.items.map(r=>(
+                                    <div key={r.id} style={{fontSize:12,color:"#6b7280",marginTop:3,cursor:"pointer"}} onClick={()=>setEditingReturn({...r})}>
+                                      {r.size && <span style={{color:"#6d28d9"}}>{r.size} </span>}{r.qty}개
+                                      {r.reason && <span style={{color:"#dc2626"}}> · {r.reason}</span>}
+                                      <span style={{color:"#d97706",marginLeft:6}}>{formatNum(calcReturnAmount(r))}원</span>
+                                      <span style={{color:"#9ca3af",marginLeft:6}}>✏️</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 });

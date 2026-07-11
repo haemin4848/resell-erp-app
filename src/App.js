@@ -65,6 +65,24 @@ async function uploadProductImage(file) {
   return `${SUPABASE_URL}/storage/v1/object/public/product-images/${filename}`;
 }
 
+// ---- 영수증 사진을 Supabase Storage에 업로드 (상품과 동일한 방식, 용량 문제 예방) ----
+async function uploadReceiptImage(file, id) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const filename = `${id}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/receipt-images/${filename}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": file.type || "image/jpeg",
+      "x-upsert": "true"
+    },
+    body: file
+  });
+  if (!res.ok) throw new Error("영수증 이미지 업로드 실패: " + res.status);
+  return `${SUPABASE_URL}/storage/v1/object/public/receipt-images/${filename}`;
+}
+
 function useDB(table) {
   const [value, setValue] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -130,6 +148,7 @@ const RECEIPT_COLS = { 2: 1, 4: 2, 6: 2, 9: 3, 12: 3 };
 function loadReceiptImg(src) {
   return new Promise((res, rej) => {
     const im = new Image();
+    im.crossOrigin = "anonymous";
     im.onload = () => res(im);
     im.onerror = rej;
     im.src = src;
@@ -323,22 +342,36 @@ export default function App() {
     e.target.value = "";
   };
 
+  // 6번: 배열을 id 기준으로 병합 (기존 항목은 유지, 없는 항목만 추가 - 절대 삭제하지 않음)
+  const mergeById = (current, incoming) => {
+    if (!Array.isArray(incoming)) return current;
+    const currentIds = new Set(current.map(item => item.id));
+    const toAdd = incoming.filter(item => item && item.id && !currentIds.has(item.id));
+    return [...current, ...toAdd];
+  };
+
   const handleImportData = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
         const d = JSON.parse(ev.target.result);
-        if (d.products) setProducts(d.products);
-        if (d.sales) setSales(d.sales);
-        if (d.purchases) setPurchases(d.purchases);
-        if (d.otherIncomes) setOtherIncomes(d.otherIncomes);
-        if (d.expenses) setExpenses(d.expenses);
-        if (d.settlements) setSettlements(d.settlements);
-        if (d.returns) setReturns(d.returns);
-        if (d.trash) setTrash(d.trash);
-        alert("불러오기 완료!");
+        const ok = window.confirm(
+          "백업 파일을 불러오면 현재 데이터에 없는 항목만 추가됩니다.\n" +
+          "기존 데이터는 삭제되거나 덮어써지지 않습니다.\n\n계속하시겠습니까?"
+        );
+        if (!ok) { e.target.value = ""; return; }
+        if (d.products) setProducts(prev => mergeById(prev, d.products));
+        if (d.sales) setSales(prev => mergeById(prev, d.sales));
+        if (d.purchases) setPurchases(prev => mergeById(prev, d.purchases));
+        if (d.otherIncomes) setOtherIncomes(prev => mergeById(prev, d.otherIncomes));
+        if (d.expenses) setExpenses(prev => mergeById(prev, d.expenses));
+        if (d.settlements) setSettlements(prev => mergeById(prev, d.settlements));
+        if (d.returns) setReturns(prev => mergeById(prev, d.returns));
+        if (d.trash) setTrash(prev => mergeById(prev, d.trash));
+        alert("불러오기 완료! 기존 데이터는 유지되고, 없던 항목만 추가되었습니다.");
       } catch { alert("파일 오류"); }
+      e.target.value = "";
     };
     reader.readAsText(file);
   };
@@ -493,11 +526,15 @@ export default function App() {
   const addReceiptFiles = (files) => {
     const imgs = [...files].filter(f => f.type && f.type.startsWith("image/"));
     imgs.forEach(f => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setReceipts(prev => [...prev, { id: generateId(), src: e.target.result, rot: 0, desc: "", amt: "" }]);
-      };
-      reader.readAsDataURL(f);
+      const id = generateId();
+      setReceipts(prev => [...prev, { id, src: "", rot: 0, desc: "", amt: "", uploading: true }]);
+      uploadReceiptImage(f, id).then(url => {
+        setReceipts(prev => prev.map(r => r.id === id ? { ...r, src: url, uploading: false } : r));
+      }).catch(err => {
+        console.error(err);
+        setReceipts(prev => prev.map(r => r.id === id ? { ...r, uploading: false } : r));
+        alert("영수증 이미지 업로드에 실패했어요. 다시 시도해주세요.");
+      });
     });
   };
 
@@ -521,6 +558,7 @@ export default function App() {
 
   const exportReceiptImages = async () => {
     if (receipts.length === 0) { alert("먼저 영수증을 추가해주세요."); return; }
+    if (receipts.some(r => r.uploading || !r.src)) { alert("아직 업로드 중인 영수증이 있어요. 잠시 후 다시 시도해주세요."); return; }
     try {
       const perPage = Number(receiptPerPage);
       const cols = RECEIPT_COLS[perPage];
@@ -1707,7 +1745,9 @@ export default function App() {
                       return (
                         <div key={rec.id} style={{border:"1px solid #e5e7eb",borderRadius:8,overflow:"hidden",background:"#fff"}}>
                           <div style={{height:150,background:"#f9fafb",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-                            <img src={rec.src} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",transform:`rotate(${rec.rot}deg)`}}/>
+                            {rec.uploading || !rec.src
+                              ? <span style={{fontSize:12,color:"#6d28d9"}}>업로드 중...</span>
+                              : <img src={rec.src} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",transform:`rotate(${rec.rot}deg)`}}/>}
                           </div>
                           <div style={{display:"flex",gap:4,padding:"4px 6px",borderTop:"1px dashed #e5e7eb"}}>
                             <button onClick={()=>updateReceipt(rec.id,{rot:rec.rot-90})} style={{...btn2,padding:"3px 8px",fontSize:11}}>↺</button>

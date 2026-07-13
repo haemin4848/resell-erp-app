@@ -288,6 +288,7 @@ export default function App() {
   const [exportDateTo, setExportDateTo] = useState("");
   const [expandedExpenseDate, setExpandedExpenseDate] = useState(null);
   const [expandedReturnDate, setExpandedReturnDate] = useState(null);
+  const [expandedStockId, setExpandedStockId] = useState(null);
   const [selectedFundingKey, setSelectedFundingKey] = useState(null);
   const [expandedFundingDate, setExpandedFundingDate] = useState(null);
   const [scanInput, setScanInput] = useState("");
@@ -440,7 +441,8 @@ export default function App() {
   };
 
   // 4번: 반품 금액 계산 - 연결된 매입 내역의 단가를 기준으로 계산
-  const calcReturnAmount = (r) => {
+  // 반품된 매입 건의 단가 추정 (연결된 매입 기록 기준, 없으면 동일 상품/사이즈의 최근 매입가로 대체)
+  const getReturnUnitPrice = (r) => {
     let unitPrice = 0;
     if (r.purchaseIds && r.purchaseIds.length > 0) {
       const matched = purchases.filter(p => r.purchaseIds.includes(p.id));
@@ -450,8 +452,9 @@ export default function App() {
       const fallback = purchases.filter(p => p.productId === r.productId && p.size === r.size).slice(-1)[0];
       if (fallback) unitPrice = Number(fallback.price || 0);
     }
-    return unitPrice * Number(r.qty || 1);
+    return unitPrice;
   };
+  const calcReturnAmount = (r) => getReturnUnitPrice(r) * Number(r.qty || 1);
 
   const totalSell = sales.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
   const totalPurchaseRaw = purchases.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
@@ -460,8 +463,20 @@ export default function App() {
   const totalProfit = sales.reduce((s,sale) => s+calcProfit(sale).profit, 0);
   const totalExpenses = expenses.reduce((s,x) => s+Number(x.amount||0), 0);
   const totalSettled = settlements.reduce((s,x) => s+Number(x.amount||0), 0);
-  const totalVatRefund = purchases.reduce((s,p) => s+calcVat(p.price,p.qty).vat, 0);
+  // 9번: 부가세환급 예상 금액 - 반품된 건은 환급 대상에서 차감
+  const totalReturnVat = returns.reduce((s,r) => s+calcVat(getReturnUnitPrice(r), r.qty).vat, 0);
+  const totalVatRefund = purchases.reduce((s,p) => s+calcVat(p.price,p.qty).vat, 0) - totalReturnVat;
   const receiptTotal = receipts.reduce((s,r) => s+parseAmt(r.amt), 0);
+
+  // 8번: 재고현황 총 수량/금액 (매입가 평균 기준으로 재고 가치 추정)
+  const totalStockQty = products.reduce((s,p) => s+Object.keys(p.sizes||{}).reduce((s2,size)=>s2+Math.max(calcStock(p.id,size),0),0), 0);
+  const totalStockValue = products.reduce((sum,p) => sum+Object.keys(p.sizes||{}).reduce((s2,size) => {
+    const stock = Math.max(calcStock(p.id,size),0);
+    if (stock<=0) return s2;
+    const relevantPurchases = purchases.filter(x=>x.productId===p.id && x.size===size);
+    const avgPrice = relevantPurchases.length>0 ? relevantPurchases.reduce((s3,x)=>s3+Number(x.price||0),0)/relevantPurchases.length : 0;
+    return s2 + stock*avgPrice;
+  }, 0), 0);
 
   // 2번: 기존 상품 재고 일괄 0 초기화
   const resetAllStockToZero = () => {
@@ -753,6 +768,7 @@ export default function App() {
                 {label:"총 경비",value:`${formatNum(totalExpenses)}원`,color:"#dc2626"},
                 {label:"총 정산",value:`${formatNum(totalSettled)}원`,color:"#0369a1"},
                 {label:"부가세환급 예상",value:`${formatNum(Math.round(totalVatRefund))}원`,color:"#b45309"},
+                {label:"재고현황",value:`${formatNum(totalStockQty)}개 · ${formatNum(Math.round(totalStockValue))}원`,color:"#6d28d9"},
                 {label:"등록 상품",value:`${products.length}개`,color:"#7c3aed"},
               ].map(c => (
                 <div key={c.label} style={{background:"#fff",borderRadius:10,padding:"12px 14px",border:"1px solid #e5e7eb"}}>
@@ -1234,7 +1250,7 @@ export default function App() {
         {tab==="stock" && (
           <div>
             <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>재고 현황</div>
-            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>총 재고 수량 <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(products.reduce((s,p)=>s+Object.keys(p.sizes||{}).reduce((s2,size)=>s2+Math.max(calcStock(p.id,size),0),0),0))}개</span></div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>총 재고 <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(totalStockQty)}개</span> · 총 재고금액(매입가 기준) <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(Math.round(totalStockValue))}원</span></div>
             <div style={cs}>
               <div style={lbl}>품번 검색</div>
               <input value={stockCodeSearch} onChange={e=>setStockCodeSearch(e.target.value)}
@@ -1252,48 +1268,72 @@ export default function App() {
               if (withStock.length===0) return <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>{stockCodeSearch?"검색 결과 없음":"보유 재고 없음"}</div>;
 
               return withStock.sort((a,b)=>a.brand.localeCompare(b.brand,"ko")||a.name.localeCompare(b.name,"ko")).map(p=>{
-                const pPurchases = purchases.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
-                const pSales = sales.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
                 const totalStock = p.stockList.reduce((s,x)=>s+x.stock,0);
+                const isExpanded = expandedStockId === p.id;
+                // 11번: 평소엔 간략히, 클릭하면 매입/매출/반품 상세 표시
                 return (
                   <div key={p.id} style={cs}>
-                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-                      {p.image && <img src={p.image} alt="" style={{width:56,height:56,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
-                      <div>
-                        <div style={{fontWeight:700,fontSize:16}}>{p.name}</div>
-                        <div style={{fontSize:13,color:"#6b7280"}}>품번: {p.code||"-"} · {p.brand} · 총 {totalStock}개</div>
+                    <div style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}
+                      onClick={()=>setExpandedStockId(isExpanded ? null : p.id)}>
+                      {p.image ? <img src={p.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:44,height:44,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>👟</div>}
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:15}}>{p.name}</div>
+                        <div style={{fontSize:12,color:"#9ca3af"}}>품번: {p.code||"-"} · {p.brand}</div>
                       </div>
+                      <div style={{fontWeight:700,fontSize:15,color:"#6d28d9"}}>{totalStock}개</div>
+                      <span style={{fontSize:12,color:"#9ca3af",marginLeft:6}}>{isExpanded?"▲":"▼"}</span>
                     </div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
-                      {p.stockList.sort((a,b)=>a.size-b.size).map(x=>(
-                        <div key={x.size} style={{padding:"6px 14px",borderRadius:8,background:"#ede9fe",fontSize:14}}>
-                          <span style={{color:"#6b7280"}}>{x.size}mm</span>
-                          <span style={{color:"#6d28d9",fontWeight:700,marginLeft:6}}>{x.stock}개</span>
+
+                    {isExpanded && (() => {
+                      const pPurchases = purchases.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
+                      const pSales = sales.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
+                      const pReturns = returns.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
+                      return (
+                        <div style={{marginTop:12,borderTop:"1px solid #f3f4f6",paddingTop:12}}>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+                            {p.stockList.sort((a,b)=>a.size-b.size).map(x=>(
+                              <div key={x.size} style={{padding:"6px 14px",borderRadius:8,background:"#ede9fe",fontSize:14}}>
+                                <span style={{color:"#6b7280"}}>{x.size}mm</span>
+                                <span style={{color:"#6d28d9",fontWeight:700,marginLeft:6}}>{x.stock}개</span>
+                              </div>
+                            ))}
+                          </div>
+                          {pPurchases.length>0 && (
+                            <div style={{marginBottom:10}}>
+                              <div style={{fontSize:13,fontWeight:700,color:"#d97706",marginBottom:6}}>매입 내역</div>
+                              {pPurchases.map(x=>(
+                                <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
+                                  <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개</span>
+                                  <span style={{fontWeight:600,color:"#d97706"}}>{formatNum(x.price*x.qty)}원</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {pSales.length>0 && (
+                            <div style={{marginBottom:10}}>
+                              <div style={{fontSize:13,fontWeight:700,color:"#059669",marginBottom:6}}>매출 내역</div>
+                              {pSales.map(x=>(
+                                <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
+                                  <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개 · {x.platform}</span>
+                                  <span style={{fontWeight:600,color:"#059669"}}>{formatNum(x.price*x.qty)}원</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {pReturns.length>0 && (
+                            <div>
+                              <div style={{fontSize:13,fontWeight:700,color:"#dc2626",marginBottom:6}}>반품 내역</div>
+                              {pReturns.map(x=>(
+                                <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
+                                  <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개{x.reason?` · ${x.reason}`:""}</span>
+                                  <span style={{fontWeight:600,color:"#dc2626"}}>{formatNum(calcReturnAmount(x))}원</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                    {pPurchases.length>0 && (
-                      <div style={{marginBottom:10}}>
-                        <div style={{fontSize:13,fontWeight:700,color:"#d97706",marginBottom:6}}>매입 내역</div>
-                        {pPurchases.map(x=>(
-                          <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
-                            <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개</span>
-                            <span style={{fontWeight:600,color:"#d97706"}}>{formatNum(x.price*x.qty)}원</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {pSales.length>0 && (
-                      <div>
-                        <div style={{fontSize:13,fontWeight:700,color:"#059669",marginBottom:6}}>매출 내역</div>
-                        {pSales.map(x=>(
-                          <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
-                            <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개 · {x.platform}</span>
-                            <span style={{fontWeight:600,color:"#059669"}}>{formatNum(x.price*x.qty)}원</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 );
               });
@@ -1322,9 +1362,9 @@ export default function App() {
                 </div>
                 {returnCodeSearch && (() => {
                   const matchedProd = products.find(p=>p.code&&normalizeCode(p.code)===normalizeCode(returnCodeSearch));
-                  const matchedPurchases = matchedProd ? purchases.filter(p=>p.productId===matchedProd.id).sort((a,b)=>b.date.localeCompare(a.date)) : [];
+                  const matchedPurchases = matchedProd ? purchases.filter(p=>p.productId===matchedProd.id && calcStock(matchedProd.id, p.size) > 0).sort((a,b)=>b.date.localeCompare(a.date)) : [];
                   if (!matchedProd) return <div style={{padding:"10px",color:"#dc2626",fontSize:13}}>등록된 품번을 찾을 수 없어요</div>;
-                  if (matchedPurchases.length===0) return <div style={{padding:"10px",color:"#9ca3af",fontSize:13}}>매입 내역이 없어요</div>;
+                  if (matchedPurchases.length===0) return <div style={{padding:"10px",color:"#9ca3af",fontSize:13}}>재고가 남아있는 매입 내역이 없어요</div>;
                   return (
                     <div>
                       <div style={lbl}>매입 내역 선택 (복수 선택 가능, 선택 안해도 저장 가능)</div>

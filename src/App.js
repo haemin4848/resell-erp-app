@@ -762,11 +762,11 @@ export default function App() {
           <div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
               {[
-                {label:"총 매출",value:`${formatNum(totalSell)}원`,color:"#6d28d9"},
-                {label:"총 수익",value:`${formatNum(totalProfit)}원`,color:totalProfit>=0?"#059669":"#dc2626"},
-                {label:"총 매입",value:`${formatNum(totalBuy)}원`,color:"#d97706"},
-                {label:"총 경비",value:`${formatNum(totalExpenses)}원`,color:"#dc2626"},
-                {label:"총 정산",value:`${formatNum(totalSettled)}원`,color:"#0369a1"},
+                {label:"매입",value:`${formatNum(totalBuy)}원`,color:"#d97706"},
+                {label:"매출",value:`${formatNum(totalSell)}원`,color:"#6d28d9"},
+                {label:"수익",value:`${formatNum(totalProfit)}원`,color:totalProfit>=0?"#059669":"#dc2626"},
+                {label:"경비",value:`${formatNum(totalExpenses)}원`,color:"#dc2626"},
+                {label:"정산",value:`${formatNum(totalSettled)}원`,color:"#0369a1"},
                 {label:"부가세환급 예상",value:`${formatNum(Math.round(totalVatRefund))}원`,color:"#b45309"},
                 {label:"재고현황",value:`${formatNum(totalStockQty)}개 · ${formatNum(Math.round(totalStockValue))}원`,color:"#6d28d9"},
                 {label:"등록 상품",value:`${products.length}개`,color:"#7c3aed"},
@@ -1375,7 +1375,9 @@ export default function App() {
                             <div key={p.id} onClick={()=>setNewReturn(prev=>{
                               const ids = prev.purchaseIds||[];
                               const newIds = selected ? ids.filter(id=>id!==p.id) : [...ids, p.id];
-                              return {...prev, productId:matchedProd.id, productName:matchedProd.name, productCode:matchedProd.code, purchaseIds:newIds};
+                              // 재고에 정확히 반영되려면 매입 내역의 사이즈와 반품의 사이즈가 반드시 일치해야 함
+                              const nextSize = selected ? prev.size : p.size;
+                              return {...prev, productId:matchedProd.id, productName:matchedProd.name, productCode:matchedProd.code, size:nextSize, purchaseIds:newIds};
                             })}
                               style={{padding:"10px 14px",borderRadius:8,border:selected?"2px solid #6d28d9":"1px solid #e5e7eb",background:selected?"#ede9fe":"#f9fafb",cursor:"pointer",fontSize:13}}>
                               <span style={{fontWeight:600}}>{p.date}</span> · {p.size} · {p.qty}개 · {formatNum(p.price)}원 · {p.place||"-"}

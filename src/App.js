@@ -1367,7 +1367,7 @@ export default function App() {
                   if (matchedPurchases.length===0) return <div style={{padding:"10px",color:"#9ca3af",fontSize:13}}>재고가 남아있는 매입 내역이 없어요</div>;
                   return (
                     <div>
-                      <div style={lbl}>매입 내역 선택 (복수 선택 가능, 선택 안해도 저장 가능)</div>
+                      <div style={lbl}>매입 내역 선택 (복수 선택 가능, 서로 다른 사이즈도 함께 선택 가능)</div>
                       <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
                         {matchedPurchases.map(p=>{
                           const selected = (newReturn.purchaseIds||[]).includes(p.id);
@@ -1375,9 +1375,7 @@ export default function App() {
                             <div key={p.id} onClick={()=>setNewReturn(prev=>{
                               const ids = prev.purchaseIds||[];
                               const newIds = selected ? ids.filter(id=>id!==p.id) : [...ids, p.id];
-                              // 재고에 정확히 반영되려면 매입 내역의 사이즈와 반품의 사이즈가 반드시 일치해야 함
-                              const nextSize = selected ? prev.size : p.size;
-                              return {...prev, productId:matchedProd.id, productName:matchedProd.name, productCode:matchedProd.code, size:nextSize, purchaseIds:newIds};
+                              return {...prev, productId:matchedProd.id, productName:matchedProd.name, productCode:matchedProd.code, purchaseIds:newIds};
                             })}
                               style={{padding:"10px 14px",borderRadius:8,border:selected?"2px solid #6d28d9":"1px solid #e5e7eb",background:selected?"#ede9fe":"#f9fafb",cursor:"pointer",fontSize:13}}>
                               <span style={{fontWeight:600}}>{p.date}</span> · {p.size} · {p.qty}개 · {formatNum(p.price)}원 · {p.place||"-"}
@@ -1386,22 +1384,54 @@ export default function App() {
                           );
                         })}
                       </div>
+                      {(newReturn.purchaseIds||[]).length>0 && (
+                        <div style={{fontSize:12,color:"#6d28d9",background:"#ede9fe",borderRadius:8,padding:"8px 12px",marginBottom:12}}>
+                          선택한 {(newReturn.purchaseIds||[]).length}건은 저장 시 <b>사이즈별로 자동으로 나뉘어</b> 반품 등록됩니다. (아래 사이즈/수량 입력은 사용되지 않아요)
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>상품명</div><input value={newReturn.productName} onChange={e=>setNewReturn(p=>({...p,productName:e.target.value}))} placeholder="상품명 입력" style={inp}/></div>
                   <div><div style={lbl}>품번</div><input value={newReturn.productCode} onChange={e=>setNewReturn(p=>({...p,productCode:e.target.value}))} placeholder="품번 입력" style={inp}/></div>
-                  <div><div style={lbl}>사이즈</div><input value={newReturn.size} onChange={e=>setNewReturn(p=>({...p,size:e.target.value}))} placeholder="사이즈" style={inp}/></div>
-                  <div><div style={lbl}>반품 수량</div><input type="number" min="1" value={newReturn.qty} onChange={e=>setNewReturn(p=>({...p,qty:e.target.value}))} style={inp}/></div>
+                  {(newReturn.purchaseIds||[]).length===0 && (<>
+                    <div><div style={lbl}>사이즈</div><input value={newReturn.size} onChange={e=>setNewReturn(p=>({...p,size:e.target.value}))} placeholder="사이즈" style={inp}/></div>
+                    <div><div style={lbl}>반품 수량</div><input type="number" min="1" value={newReturn.qty} onChange={e=>setNewReturn(p=>({...p,qty:e.target.value}))} style={inp}/></div>
+                  </>)}
                   <div><div style={lbl}>반품일</div><input type="date" value={newReturn.date} onChange={e=>setNewReturn(p=>({...p,date:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>반품 사유</div><input value={newReturn.reason} onChange={e=>setNewReturn(p=>({...p,reason:e.target.value}))} placeholder="예: 불량, 사이즈 오류" style={inp}/></div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newReturn.memo} onChange={e=>setNewReturn(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
                 <div style={{display:"flex",gap:8,marginTop:14}}>
                   <button onClick={()=>{
-                    if(!newReturn.productName){alert("상품명을 입력해주세요!");return;}
-                    setReturns(prev=>[...prev,{...newReturn,id:generateId(),qty:Number(newReturn.qty)||1}]);
+                    const selectedIds = newReturn.purchaseIds||[];
+                    if (selectedIds.length>0) {
+                      // 11번(연속): 선택한 매입 건을 사이즈별로 묶어 각각 별도 반품 건으로 저장 -> 서로 다른 사이즈를 동시에 선택해도 재고에 정확히 반영됨
+                      const selectedPurchases = purchases.filter(p=>selectedIds.includes(p.id));
+                      const bySize = {};
+                      selectedPurchases.forEach(p=>{
+                        if (!bySize[p.size]) bySize[p.size] = { size:p.size, qty:0, purchaseIds:[] };
+                        bySize[p.size].qty += Number(p.qty||1);
+                        bySize[p.size].purchaseIds.push(p.id);
+                      });
+                      const newRecords = Object.values(bySize).map(g => ({
+                        id: generateId(),
+                        productId: newReturn.productId,
+                        productName: newReturn.productName,
+                        productCode: newReturn.productCode,
+                        size: g.size,
+                        qty: g.qty,
+                        purchaseIds: g.purchaseIds,
+                        date: newReturn.date,
+                        reason: newReturn.reason,
+                        memo: newReturn.memo,
+                      }));
+                      setReturns(prev=>[...prev, ...newRecords]);
+                    } else {
+                      if(!newReturn.productName){alert("상품명을 입력해주세요!");return;}
+                      setReturns(prev=>[...prev,{...newReturn,id:generateId(),qty:Number(newReturn.qty)||1}]);
+                    }
                     setReturnCodeSearch(""); setNewReturn({...emptyReturn}); setShowAddReturn(false);
                   }} style={btn1}>저장</button>
                   <button onClick={()=>{setShowAddReturn(false);setReturnCodeSearch("");setNewReturn({...emptyReturn});}} style={btn2}>취소</button>

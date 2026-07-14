@@ -5,18 +5,41 @@ const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,2
 const CATEGORIES = ["신발", "의류", "가방", "기타"];
 
 // ---- 업그레이드 A: 붙여넣은 텍스트에서 품번/브랜드/상품명 추정 ----
-const KNOWN_BRANDS = ["나이키","아디다스","뉴발란스","아식스","반스","컨버스","조던","살로몬","크록스","언더아머","필라","리복","푸마","호카","오니츠카타이거","MLB","르꼬끄","닥터마틴","버켄스탁","On","온러닝"];
+const KNOWN_BRANDS = ["나이키","아디다스","뉴발란스","아식스","반스","컨버스","조던","살로몬","크록스","언더아머","필라","리복","푸마","호카","오니츠카타이거","MLB","르꼬끄","닥터마틴","버켄스탁","On","온러닝","데상트","아크테릭스","스투시","슈프림","스톤아일랜드","구찌","프라다","샤넬","미우미우","셀린느","코치","발렌시아가","로에베","디올"];
 
 function parsePastedProductText(text) {
   let remaining = text.replace(/\s+/g, " ").trim();
   let code = "";
   let brand = "";
 
-  // 품번 추정: 영문+숫자+하이픈 조합 패턴 (예: DD1391-100, IO4223-100)
-  const codeMatch = remaining.match(/\b[A-Za-z]{1,4}\d{2,6}-\d{2,4}\b/);
+  // 품번 추정: 1차로 나이키(DD1391-100)/아디다스(JI0079) 형식부터 확인
+  let codeMatch = remaining.match(/\b[A-Za-z]{2,4}\d{3,6}(-\d{2,4})?\b/);
+  // 1차에서 못 찾으면, 영문+숫자가 섞인 6~14자 토큰 중 "가장 긴 것"을 품번으로 간주
+  // (뉴발란스 M2002RDA, 아식스 1201A789-020, 반스 VN0A4BV5, 컨버스 162050C 등 다양한 형식 포괄.
+  //  가장 긴 토큰을 고르는 이유: "990v6" 같은 짧은 모델버전 표기가 오인식되는 걸 방지하기 위함)
+  if (!codeMatch) {
+    const genericRe = /\b(?=[A-Za-z0-9-]{6,14}\b)(?=[A-Za-z0-9-]*[A-Za-z])(?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{6,14}\b/g;
+    const candidates = remaining.match(genericRe) || [];
+    if (candidates.length) {
+      const longest = candidates.reduce((a,b) => b.length>a.length ? b : a);
+      codeMatch = [longest];
+    }
+  }
   if (codeMatch) {
     code = codeMatch[0];
     remaining = remaining.replace(codeMatch[0], "").trim();
+  }
+
+  // 3차: 그래도 못 찾으면 순수 숫자(5~8자리) 중 가장 긴 것을 품번으로 간주 (구찌 등 명품 대응)
+  // 신발 사이즈(보통 2~3자리)보다 길게 최소 자릿수를 잡아서 사이즈와 헷갈리지 않도록 함
+  if (!code) {
+    const numRe = /\b\d{5,8}\b/g;
+    const numCandidates = remaining.match(numRe) || [];
+    if (numCandidates.length) {
+      const longestNum = numCandidates.reduce((a,b) => b.length>a.length ? b : a);
+      code = longestNum;
+      remaining = remaining.replace(longestNum, "").trim();
+    }
   }
 
   // 브랜드 추정: 알려진 브랜드명이 포함되어 있으면 추출

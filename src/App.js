@@ -304,6 +304,8 @@ export default function App() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [imgUploading, setImgUploading] = useState(false);
+  const [imgUrlDraftAdd, setImgUrlDraftAdd] = useState("");
+  const [imgUrlDraftEdit, setImgUrlDraftEdit] = useState("");
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -385,24 +387,36 @@ export default function App() {
     }));
   };
 
-  // 이미지 주소(URL)를 붙여넣으면: 가능하면 Storage로 내려받아 영구 저장, CORS 등으로 안되면 원본 주소를 그대로 사용
-  const handleImageUrlPaste = (e, isEdit=false) => {
-    const url = (e.clipboardData.getData("text") || "").trim();
-    if (!url || !/^https?:\/\//i.test(url)) return;
+  // 이미지 주소(URL)를 입력/붙여넣으면: 가능하면 Storage로 내려받아 영구 저장, CORS 등으로 안되면 원본 주소를 그대로 사용 + 항상 결과를 명확히 알려줌
+  const applyImageUrl = (url, isEdit=false) => {
+    const clean = (url || "").trim();
+    if (!clean) return;
+    if (!/^https?:\/\//i.test(clean)) { alert("올바른 이미지 주소가 아니에요. http:// 또는 https://로 시작하는 주소를 넣어주세요."); return; }
     const setTarget = isEdit ? setEditingProduct : setNewProduct;
     setImgUploading(true);
-    fetch(url)
-      .then(res => { if (!res.ok) throw new Error("fetch failed"); return res.blob(); })
+    fetch(clean)
+      .then(res => { if (!res.ok) throw new Error("status:" + res.status); return res.blob(); })
       .then(blob => {
+        if (!blob.type.startsWith("image/")) throw new Error("not-image");
         const ext = (blob.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/g, "") || "jpg";
-        const file = new File([blob], `pasted.${ext}`, { type: blob.type || "image/jpeg" });
+        const file = new File([blob], `pasted.${ext}`, { type: blob.type });
         return uploadProductImage(file);
       })
-      .then(uploadedUrl => { setTarget(prev => ({ ...prev, image: uploadedUrl })); setImgUploading(false); })
-      .catch(() => {
-        // 다른 사이트 이미지라 직접 다운로드가 막혀있는 경우, 원본 주소를 그대로 사용 (화면엔 보이지만 우리 저장공간으로 영구 이전은 안 됨)
-        setTarget(prev => ({ ...prev, image: url }));
+      .then(uploadedUrl => {
+        setTarget(prev => ({ ...prev, image: uploadedUrl }));
         setImgUploading(false);
+        if (isEdit) setImgUrlDraftEdit(""); else setImgUrlDraftAdd("");
+      })
+      .catch(err => {
+        setImgUploading(false);
+        if (err && err.message === "not-image") {
+          alert("이 주소는 이미지 파일이 아니에요.\n상품 '페이지' 주소가 아니라, 사진 위에서 마우스 우클릭 → \"이미지 주소 복사\"로 얻은 직접 이미지 링크(보통 .jpg .png 등으로 끝남)를 넣어주세요.");
+          return;
+        }
+        // CORS 등 다른 사이트 보안 정책으로 직접 다운로드가 막힌 경우 - 원본 주소로 화면 표시만 시도
+        setTarget(prev => ({ ...prev, image: clean }));
+        if (isEdit) setImgUrlDraftEdit(""); else setImgUrlDraftAdd("");
+        alert("이 사이트는 외부에서 이미지를 직접 가져가지 못하도록 막아둔 것 같아요.\n일단 그 주소로 화면 표시는 시도했는데, 이미지가 안 뜨면 이 방법으로는 가져올 수 없는 사이트예요. 이미지를 캡처하거나 저장한 뒤 '파일 선택'으로 올려주세요.");
       });
   };
 
@@ -966,11 +980,17 @@ export default function App() {
                     <button onClick={()=>imageInputRef.current.click()} style={{...btn2,fontSize:12}}>파일 선택</button>
                     <input ref={imageInputRef} type="file" accept="image/*" onChange={e=>handleImageUpload(e,false)} style={{display:"none"}}/>
                   </div>
-                  <input
-                    onPaste={e=>handleImageUrlPaste(e,false)}
-                    placeholder="또는 이미지 주소(URL) 붙여넣기 (Ctrl+V)"
-                    style={{...inp,marginTop:8,fontSize:12}}
-                  />
+                  <div style={{display:"flex",gap:6,marginTop:8}}>
+                    <input
+                      value={imgUrlDraftAdd}
+                      onChange={e=>setImgUrlDraftAdd(e.target.value)}
+                      onPaste={e=>{ const url=(e.clipboardData.getData("text")||"").trim(); if(url) setTimeout(()=>applyImageUrl(url,false),0); }}
+                      onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); applyImageUrl(imgUrlDraftAdd,false); } }}
+                      placeholder="또는 이미지 주소(URL) 붙여넣거나 입력 후 Enter"
+                      style={{...inp,fontSize:12,flex:1}}
+                    />
+                    <button onClick={()=>applyImageUrl(imgUrlDraftAdd,false)} style={{...btn2,fontSize:12,flexShrink:0}}>적용</button>
+                  </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   {[{key:"code",label:"품번"},{key:"brand",label:"브랜드"},{key:"name",label:"상품명 *"},{key:"releasePrice",label:"발행가 (원)"}].map(f=>(
@@ -1011,11 +1031,17 @@ export default function App() {
                     {editingProduct.image && <button onClick={()=>setEditingProduct(p=>({...p,image:""}))} style={{...btnDanger,fontSize:12}}>삭제</button>}
                     <input ref={editImageRef} type="file" accept="image/*" onChange={e=>handleImageUpload(e,true)} style={{display:"none"}}/>
                   </div>
-                  <input
-                    onPaste={e=>handleImageUrlPaste(e,true)}
-                    placeholder="또는 이미지 주소(URL) 붙여넣기 (Ctrl+V)"
-                    style={{...inp,marginTop:8,fontSize:12}}
-                  />
+                  <div style={{display:"flex",gap:6,marginTop:8}}>
+                    <input
+                      value={imgUrlDraftEdit}
+                      onChange={e=>setImgUrlDraftEdit(e.target.value)}
+                      onPaste={e=>{ const url=(e.clipboardData.getData("text")||"").trim(); if(url) setTimeout(()=>applyImageUrl(url,true),0); }}
+                      onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); applyImageUrl(imgUrlDraftEdit,true); } }}
+                      placeholder="또는 이미지 주소(URL) 붙여넣거나 입력 후 Enter"
+                      style={{...inp,fontSize:12,flex:1}}
+                    />
+                    <button onClick={()=>applyImageUrl(imgUrlDraftEdit,true)} style={{...btn2,fontSize:12,flexShrink:0}}>적용</button>
+                  </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div><div style={lbl}>품번</div><input value={editingProduct.code||""} onChange={e=>setEditingProduct(p=>({...p,code:e.target.value}))} style={inp}/></div>

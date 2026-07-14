@@ -3,6 +3,34 @@ import { useState, useRef, useEffect } from "react";
 const PLATFORMS = ["포이즌", "크림", "기타"];
 const SIZES = [200,205,210,215,220,225,230,235,240,245,250,255,260,265,270,275,280,285,290,295,300,305,310,315,320,325,330,335,340,345,350];
 const CATEGORIES = ["신발", "의류", "가방", "기타"];
+
+// ---- 업그레이드 A: 붙여넣은 텍스트에서 품번/브랜드/상품명 추정 ----
+const KNOWN_BRANDS = ["나이키","아디다스","뉴발란스","아식스","반스","컨버스","조던","살로몬","크록스","언더아머","필라","리복","푸마","호카","오니츠카타이거","MLB","르꼬끄","닥터마틴","버켄스탁","On","온러닝"];
+
+function parsePastedProductText(text) {
+  let remaining = text.replace(/\s+/g, " ").trim();
+  let code = "";
+  let brand = "";
+
+  // 품번 추정: 영문+숫자+하이픈 조합 패턴 (예: DD1391-100, IO4223-100)
+  const codeMatch = remaining.match(/\b[A-Za-z]{1,4}\d{2,6}-\d{2,4}\b/);
+  if (codeMatch) {
+    code = codeMatch[0];
+    remaining = remaining.replace(codeMatch[0], "").trim();
+  }
+
+  // 브랜드 추정: 알려진 브랜드명이 포함되어 있으면 추출
+  for (const b of KNOWN_BRANDS) {
+    if (remaining.includes(b)) {
+      brand = b;
+      remaining = remaining.replace(b, "").trim();
+      break;
+    }
+  }
+
+  const name = remaining.replace(/\s{2,}/g, " ").replace(/^[·\-,\s]+|[·\-,\s]+$/g, "").trim();
+  return { code, brand, name };
+}
 const CLOTHING_SIZES = ["70","75","80","85","90","92","95","100","105","110","115","120","XS","S","M","L","XL","XXL","XXXL"];
 const BAG_SIZES = ["FREE","XS","S","M","L","XL"];
 const OTHER_SIZES = ["FREE","XS","S","M","L","XL","XXL","1","2","3","4","5","6","7","8","9","10"];
@@ -341,6 +369,41 @@ export default function App() {
       setImgUploading(false);
     });
     e.target.value = "";
+  };
+
+  // ---- 업그레이드 A: 포이즌 등에서 복사한 상품정보 붙여넣기 자동 정리 ----
+  const handleProductTextPaste = (e, isEdit=false) => {
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+    const parsed = parsePastedProductText(text);
+    const setTarget = isEdit ? setEditingProduct : setNewProduct;
+    setTarget(prev => ({
+      ...prev,
+      code: parsed.code || prev.code,
+      brand: parsed.brand || prev.brand,
+      name: parsed.name || prev.name,
+    }));
+  };
+
+  // 이미지 주소(URL)를 붙여넣으면: 가능하면 Storage로 내려받아 영구 저장, CORS 등으로 안되면 원본 주소를 그대로 사용
+  const handleImageUrlPaste = (e, isEdit=false) => {
+    const url = (e.clipboardData.getData("text") || "").trim();
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    const setTarget = isEdit ? setEditingProduct : setNewProduct;
+    setImgUploading(true);
+    fetch(url)
+      .then(res => { if (!res.ok) throw new Error("fetch failed"); return res.blob(); })
+      .then(blob => {
+        const ext = (blob.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/g, "") || "jpg";
+        const file = new File([blob], `pasted.${ext}`, { type: blob.type || "image/jpeg" });
+        return uploadProductImage(file);
+      })
+      .then(uploadedUrl => { setTarget(prev => ({ ...prev, image: uploadedUrl })); setImgUploading(false); })
+      .catch(() => {
+        // 다른 사이트 이미지라 직접 다운로드가 막혀있는 경우, 원본 주소를 그대로 사용 (화면엔 보이지만 우리 저장공간으로 영구 이전은 안 됨)
+        setTarget(prev => ({ ...prev, image: url }));
+        setImgUploading(false);
+      });
   };
 
   // 6번: 배열을 id 기준으로 병합 (기존 항목은 유지, 없는 항목만 추가 - 절대 삭제하지 않음)
@@ -876,6 +939,14 @@ export default function App() {
               <div style={{...cs,border:"1px solid #6d28d9"}}>
                 <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>새 상품 등록</div>
                 <div style={{marginBottom:12}}>
+                  <div style={lbl}>🔗 빠른 붙여넣기 (포이즌 등에서 복사한 상품명/품번 텍스트)</div>
+                  <textarea
+                    onPaste={e=>handleProductTextPaste(e,false)}
+                    placeholder="상품 페이지에서 텍스트를 복사해 여기에 붙여넣으면 품번/브랜드/상품명을 자동으로 정리해봐요 (자동 인식이 틀리면 아래에서 직접 수정하면 돼요)"
+                    style={{...inp,minHeight:56,resize:"vertical",fontFamily:"inherit"}}
+                  />
+                </div>
+                <div style={{marginBottom:12}}>
                   <div style={lbl}>카테고리</div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {CATEGORIES.map(c=>(
@@ -889,12 +960,17 @@ export default function App() {
                 {/* 2번: contain */}
                 <div style={{marginBottom:12}}>
                   <div style={lbl}>이미지</div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                     {newProduct.image ? <img src={newProduct.image} alt="" style={{width:64,height:64,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/> : <div style={{width:64,height:64,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#9ca3af"}}>👟</div>}
                     {imgUploading && <span style={{fontSize:12,color:"#6d28d9"}}>업로드 중...</span>}
-                    <button onClick={()=>imageInputRef.current.click()} style={{...btn2,fontSize:12}}>선택</button>
+                    <button onClick={()=>imageInputRef.current.click()} style={{...btn2,fontSize:12}}>파일 선택</button>
                     <input ref={imageInputRef} type="file" accept="image/*" onChange={e=>handleImageUpload(e,false)} style={{display:"none"}}/>
                   </div>
+                  <input
+                    onPaste={e=>handleImageUrlPaste(e,false)}
+                    placeholder="또는 이미지 주소(URL) 붙여넣기 (Ctrl+V)"
+                    style={{...inp,marginTop:8,fontSize:12}}
+                  />
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   {[{key:"code",label:"품번"},{key:"brand",label:"브랜드"},{key:"name",label:"상품명 *"},{key:"releasePrice",label:"발행가 (원)"}].map(f=>(
@@ -928,13 +1004,18 @@ export default function App() {
                 </div>
                 <div style={{marginBottom:12}}>
                   <div style={lbl}>이미지</div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                     {editingProduct.image ? <img src={editingProduct.image} alt="" style={{width:64,height:64,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/> : <div style={{width:64,height:64,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#9ca3af"}}>👟</div>}
                     {imgUploading && <span style={{fontSize:12,color:"#6d28d9"}}>업로드 중...</span>}
                     <button onClick={()=>editImageRef.current.click()} style={{...btn2,fontSize:12}}>이미지 변경</button>
                     {editingProduct.image && <button onClick={()=>setEditingProduct(p=>({...p,image:""}))} style={{...btnDanger,fontSize:12}}>삭제</button>}
                     <input ref={editImageRef} type="file" accept="image/*" onChange={e=>handleImageUpload(e,true)} style={{display:"none"}}/>
                   </div>
+                  <input
+                    onPaste={e=>handleImageUrlPaste(e,true)}
+                    placeholder="또는 이미지 주소(URL) 붙여넣기 (Ctrl+V)"
+                    style={{...inp,marginTop:8,fontSize:12}}
+                  />
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div><div style={lbl}>품번</div><input value={editingProduct.code||""} onChange={e=>setEditingProduct(p=>({...p,code:e.target.value}))} style={inp}/></div>

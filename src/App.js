@@ -61,7 +61,7 @@ const PAYMENT_TYPES = ["카드", "페이", "계좌이체", "현금", "기타"];
 const CARD_TYPES = ["삼성","현대","롯데","BC","신한","KB국민","하나","우리","NH농협","기업","기타"];
 const PAY_TYPES = ["카카오페이","네이버페이","토스","삼성페이","애플페이","기타"];
 const BANK_TYPES = ["국민","신한","우리","하나","농협","기업","카카오뱅크","토스뱅크","SC제일","씨티","기타"];
-const EXPENSE_TYPES = ["주유","식대","잡자재","기타"];
+const EXPENSE_TYPES = ["주유","식대","잡자재","반품배송비","기타"];
 const SETTLEMENT_PLATFORMS = ["포이즌","크림","기타"];
 
 function generateId() { return Math.random().toString(36).substr(2,9); }
@@ -245,7 +245,7 @@ const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{},
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyExpense = { type:"주유", itemName:"", qty:"1", purchasePlace:"", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptySettlement = { platform:"포이즌", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
-const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"" };
+const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"", shippingFee:"" };
 
 // 5번: EditModal을 App 밖에 정의해야 리렌더링시 커서 안 날아감
 function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
@@ -318,6 +318,7 @@ export default function App() {
   const [returns, setReturns] = useDB("returns");
   const [trash, setTrash] = useDB("trash");
   const [receipts, setReceipts] = useDB("receipts");
+  const [inspections, setInspections] = useDB("inspections");
   const loaded = prodLoaded && salesLoaded && purchLoaded;
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
@@ -329,6 +330,8 @@ export default function App() {
   const [imgUploading, setImgUploading] = useState(false);
   const [imgUrlDraftAdd, setImgUrlDraftAdd] = useState("");
   const [imgUrlDraftEdit, setImgUrlDraftEdit] = useState("");
+  const [inspectionSaleSearch, setInspectionSaleSearch] = useState("");
+  const [selectedInspectionSaleId, setSelectedInspectionSaleId] = useState("");
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -340,9 +343,12 @@ export default function App() {
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
   const [expandedExpenseDate, setExpandedExpenseDate] = useState(null);
+  const [selectedExpenseType, setSelectedExpenseType] = useState(null);
   const [expandedReturnDate, setExpandedReturnDate] = useState(null);
+  const [returnQtyBySize, setReturnQtyBySize] = useState({});
   const [expandedStockId, setExpandedStockId] = useState(null);
   const [selectedFundingKey, setSelectedFundingKey] = useState(null);
+  const [selectedFundingMonth, setSelectedFundingMonth] = useState(null);
   const [expandedFundingDate, setExpandedFundingDate] = useState(null);
   const [scanInput, setScanInput] = useState("");
   const [scanResult, setScanResult] = useState(null);
@@ -379,6 +385,30 @@ export default function App() {
     if (_type === "settlement") setSettlements(prev => [...prev, original]);
     if (_type === "product") setProducts(prev => [...prev, original]);
     setTrash(prev => prev.filter(x => x.id !== item.id));
+  };
+
+  // 16번: 검수 처리 - 할인판매(매출액 90%로 자동 수정) / 거래실패(매출 취소 -> 재고 자동 회수)
+  const processInspection = (sale, result) => {
+    if (result === "할인판매") {
+      const originalPrice = Number(sale.price);
+      const discountedPrice = Math.round(originalPrice * 0.9);
+      setSales(prev => prev.map(s => s.id === sale.id ? { ...s, price: discountedPrice } : s));
+      setInspections(prev => [...prev, {
+        id: generateId(), saleId: sale.id, productId: sale.productId, productName: sale.productName,
+        productCode: sale.productCode, size: sale.size, qty: sale.qty, date: new Date().toISOString().slice(0,10),
+        result, originalPrice, newPrice: discountedPrice,
+      }]);
+    } else if (result === "거래실패") {
+      setInspections(prev => [...prev, {
+        id: generateId(), saleId: sale.id, productId: sale.productId, productName: sale.productName,
+        productCode: sale.productCode, size: sale.size, qty: sale.qty, date: new Date().toISOString().slice(0,10),
+        result, originalPrice: Number(sale.price), newPrice: 0,
+      }]);
+      // 매출 기록은 그대로 두고 "검수불통" 표시만 남김. 재고 계산(calcStock)에서 inspectionFailed=true인 매출은
+      // 자동으로 제외되므로 별도 처리 없이 재고가 다시 복원됨
+      setSales(prev => prev.map(s => s.id === sale.id ? { ...s, inspectionFailed: true } : s));
+    }
+    setSelectedInspectionSaleId("");
   };
 
   const handleImageUpload = (e, isEdit=false) => {
@@ -525,7 +555,8 @@ export default function App() {
   // 재고 실시간 계산: 매입수량 - 매출수량
   const calcStock = (productId, size) => {
     const inQty = purchases.filter(p => p.productId===productId && p.size===size).reduce((s,p) => s+Number(p.qty||1), 0);
-    const outQty = sales.filter(s => s.productId===productId && s.size===size).reduce((s,x) => s+Number(x.qty||1), 0);
+    // 검수불통(거래실패) 처리된 매출은 재고 계산에서 제외 -> 자동으로 재고가 복원됨
+    const outQty = sales.filter(s => s.productId===productId && s.size===size && !s.inspectionFailed).reduce((s,x) => s+Number(x.qty||1), 0);
     const returnQty = returns.filter(r => r.productId===productId && r.size===size).reduce((s,r) => s+Number(r.qty||1), 0);
     return inQty - outQty - returnQty;
   };
@@ -556,11 +587,12 @@ export default function App() {
   };
   const calcReturnAmount = (r) => getReturnUnitPrice(r) * Number(r.qty || 1);
 
-  const totalSell = sales.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
+  // 거래실패(검수불통) 처리된 매출은 실제 거래가 무산된 것이므로 매출/수익 합계에서 제외
+  const totalSell = sales.filter(x=>!x.inspectionFailed).reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
   const totalPurchaseRaw = purchases.reduce((s,x) => s+Number(x.price)*Number(x.qty||1), 0);
   const totalReturnAmount = returns.reduce((s,r) => s+calcReturnAmount(r), 0);
   const totalBuy = totalPurchaseRaw - totalReturnAmount;
-  const totalProfit = sales.reduce((s,sale) => s+calcProfit(sale).profit, 0);
+  const totalProfit = sales.filter(x=>!x.inspectionFailed).reduce((s,sale) => s+calcProfit(sale).profit, 0);
   const totalExpenses = expenses.reduce((s,x) => s+Number(x.amount||0), 0);
   const totalSettled = settlements.reduce((s,x) => s+Number(x.amount||0), 0);
   // 9번: 부가세환급 예상 금액 - 반품된 건은 환급 대상에서 차감
@@ -775,6 +807,7 @@ export default function App() {
     {id:"products",label:"👟 상품"},
     {id:"purchases",label:"🛒 매입"},
     {id:"sales",label:"💰 매출"},
+    {id:"inspection",label:"🔍 검수"},
     {id:"stock",label:"📋 재고현황"},
     {id:"returns",label:"↩️ 반품"},
     {id:"expenses",label:"💸 경비"},
@@ -1356,6 +1389,7 @@ export default function App() {
                                   <div style={{fontWeight:700,fontSize:17}}>{s.productName} {s.size && <span style={{color:"#6d28d9"}}>{s.size}</span>}</div>
                                   <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>품번: {s.productCode||"-"} · {s.platform==="기타"?s.platformOther||"기타":s.platform} · {s.qty}개</div>
                                   <div style={{fontSize:12,color:"#6b7280"}}>수수료: {formatNum(s.fee||0)}원 · 배송비: {formatNum(s.shipping||0)}원</div>
+                                  {s.inspectionFailed && <div style={{fontSize:12,color:"#dc2626",fontWeight:700,marginTop:2}}>⚠ 검수불통</div>}
                                   {s.memo && <div style={{fontSize:12,color:"#9ca3af"}}>메모: {s.memo}</div>}
                                 </div>
                               </div>
@@ -1373,6 +1407,77 @@ export default function App() {
                 });
               })()
             }
+          </div>
+        )}
+
+        {/* 검수 */}
+        {tab==="inspection" && (
+          <div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>검수</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:14}}>판매 후 검수불통 발생 시, 할인판매(매출액 10% 자동 할인) 또는 거래실패(매출 취소·재고 자동 회수) 처리</div>
+
+            <div style={{...cs,marginBottom:16}}>
+              <div style={lbl}>판매 내역에서 상품 선택 (품번 또는 상품명으로 검색)</div>
+              <input value={inspectionSaleSearch} onChange={e=>{setInspectionSaleSearch(e.target.value);setSelectedInspectionSaleId("");}} placeholder="품번 또는 상품명 입력" style={inp}/>
+              {inspectionSaleSearch && (() => {
+                const inspectedSaleIds = new Set(inspections.map(i=>i.saleId));
+                const kw = inspectionSaleSearch.trim().toLowerCase();
+                const matched = sales.filter(s =>
+                  !inspectedSaleIds.has(s.id) &&
+                  ((s.productCode && s.productCode.toLowerCase().includes(kw)) || (s.productName && s.productName.toLowerCase().includes(kw)))
+                ).sort((a,b)=>b.date.localeCompare(a.date));
+                if (matched.length===0) return <div style={{padding:"10px 0",color:"#9ca3af",fontSize:13}}>검수 대상(검수 미처리 판매 내역) 검색 결과가 없어요</div>;
+                return (
+                  <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:10}}>
+                    {matched.map(s=>{
+                      const selected = selectedInspectionSaleId===s.id;
+                      return (
+                        <div key={s.id} onClick={()=>setSelectedInspectionSaleId(s.id)}
+                          style={{padding:"10px 14px",borderRadius:8,border:selected?"2px solid #6d28d9":"1px solid #e5e7eb",background:selected?"#ede9fe":"#f9fafb",cursor:"pointer",fontSize:13}}>
+                          <span style={{fontWeight:600}}>{s.date}</span> · {s.productName} · 품번 {s.productCode||"-"} · {s.size} · {s.qty}개 · {formatNum(s.price)}원 · {s.platform}
+                          {selected && <span style={{color:"#6d28d9",marginLeft:8,fontWeight:700}}>✓ 선택됨</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {selectedInspectionSaleId && (() => {
+              const sale = sales.find(s=>s.id===selectedInspectionSaleId);
+              if (!sale) return null;
+              const discounted = Math.round(Number(sale.price)*0.9);
+              return (
+                <div style={{...cs,border:"1px solid #6d28d9",marginBottom:16}}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>{sale.productName} · {sale.size} · 현재 매출액 {formatNum(sale.price)}원</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <button onClick={()=>{
+                      if(window.confirm(`할인판매로 처리할까요?\n매출액이 ${formatNum(sale.price)}원 → ${formatNum(discounted)}원(10% 할인)으로 자동 수정됩니다.`)) processInspection(sale,"할인판매");
+                    }} style={btn2}>💸 할인판매 (10% 할인 → {formatNum(discounted)}원)</button>
+                    <button onClick={()=>{
+                      if(window.confirm("거래실패로 처리할까요?\n매출 내역은 삭제되지 않고 '검수불통'으로 표시되며, 해당 재고는 다시 복원됩니다.")) processInspection(sale,"거래실패");
+                    }} style={btnDanger}>❌ 거래실패 (재고 회수)</button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8}}>검수 처리 내역</div>
+            {inspections.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>처리된 검수 내역이 없어요</div> : (
+              [...inspections].sort((a,b)=>b.date.localeCompare(a.date)).map(i=>(
+                <div key={i.id} style={{...cs,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:14}}>{i.productName} · {i.size} · {i.qty}개</div>
+                    <div style={{fontSize:12,color:"#9ca3af"}}>{i.date} · 품번 {i.productCode||"-"}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:700,color:i.result==="할인판매"?"#d97706":"#dc2626"}}>{i.result}</div>
+                    {i.result==="할인판매" && <div style={{fontSize:12,color:"#9ca3af"}}>{formatNum(i.originalPrice)}원 → {formatNum(i.newPrice)}원</div>}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
 
@@ -1418,8 +1523,20 @@ export default function App() {
                       const pPurchases = purchases.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
                       const pSales = sales.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
                       const pReturns = returns.filter(x=>x.productId===p.id).sort((a,b)=>a.date.localeCompare(b.date));
+                      // 12번: 이 상품의 평균 매입가/매출가 및 누적 수익 요약
+                      const avgBuyPrice = pPurchases.length ? pPurchases.reduce((s,x)=>s+Number(x.price||0),0)/pPurchases.length : 0;
+                      const validSales = pSales.filter(x=>!x.inspectionFailed);
+                      const avgSellPrice = validSales.length ? validSales.reduce((s,x)=>s+Number(x.price||0),0)/validSales.length : 0;
+                      const pProfit = validSales.reduce((s,x)=>s+calcProfit(x).profit,0);
                       return (
                         <div style={{marginTop:12,borderTop:"1px solid #f3f4f6",paddingTop:12}}>
+                          {(pPurchases.length>0 || pSales.length>0) && (
+                            <div style={{fontSize:12,color:"#6b7280",background:"#f9fafb",borderRadius:8,padding:"8px 12px",marginBottom:12}}>
+                              평균 매입가 <span style={{color:"#d97706",fontWeight:700}}>{formatNum(Math.round(avgBuyPrice))}원</span>
+                              {" · "}평균 매출가 <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(Math.round(avgSellPrice))}원</span>
+                              {" · "}누적 수익 <span style={{color:pProfit>=0?"#059669":"#dc2626",fontWeight:700}}>{formatNum(Math.round(pProfit))}원</span>
+                            </div>
+                          )}
                           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
                             {p.stockList.sort((a,b)=>a.size-b.size).map(x=>(
                               <div key={x.size} style={{padding:"6px 14px",borderRadius:8,background:"#ede9fe",fontSize:14}}>
@@ -1495,6 +1612,14 @@ export default function App() {
                   const matchedPurchases = matchedProd ? purchases.filter(p=>p.productId===matchedProd.id && calcStock(matchedProd.id, p.size) > 0).sort((a,b)=>b.date.localeCompare(a.date)) : [];
                   if (!matchedProd) return <div style={{padding:"10px",color:"#dc2626",fontSize:13}}>등록된 품번을 찾을 수 없어요</div>;
                   if (matchedPurchases.length===0) return <div style={{padding:"10px",color:"#9ca3af",fontSize:13}}>재고가 남아있는 매입 내역이 없어요</div>;
+                  // 15번: 선택된 매입 건을 사이즈별로 묶어, 수량을 직접 조정할 수 있는 미리보기 계산
+                  const selectedIds = newReturn.purchaseIds||[];
+                  const selectedPurchases = matchedPurchases.filter(p=>selectedIds.includes(p.id));
+                  const bySize = {};
+                  selectedPurchases.forEach(p=>{
+                    if (!bySize[p.size]) bySize[p.size] = { size:p.size, maxQty:0 };
+                    bySize[p.size].maxQty += Number(p.qty||1);
+                  });
                   return (
                     <div>
                       <div style={lbl}>매입 내역 선택 (복수 선택 가능, 서로 다른 사이즈도 함께 선택 가능)</div>
@@ -1514,9 +1639,26 @@ export default function App() {
                           );
                         })}
                       </div>
-                      {(newReturn.purchaseIds||[]).length>0 && (
-                        <div style={{fontSize:12,color:"#6d28d9",background:"#ede9fe",borderRadius:8,padding:"8px 12px",marginBottom:12}}>
-                          선택한 {(newReturn.purchaseIds||[]).length}건은 저장 시 <b>사이즈별로 자동으로 나뉘어</b> 반품 등록됩니다. (아래 사이즈/수량 입력은 사용되지 않아요)
+                      {Object.keys(bySize).length>0 && (
+                        <div style={{marginBottom:12}}>
+                          <div style={lbl}>사이즈별 반품 수량 (일부만 반품하는 경우 직접 줄여서 입력)</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {Object.values(bySize).map(g=>(
+                              <div key={g.size} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8}}>
+                                <span style={{fontSize:13,fontWeight:600,flex:1}}>{g.size} (매입 {g.maxQty}개)</span>
+                                <input type="number" min="1" max={g.maxQty}
+                                  value={returnQtyBySize[g.size] ?? g.maxQty}
+                                  onChange={e=>{
+                                    let v = Number(e.target.value)||1;
+                                    if (v>g.maxQty) v=g.maxQty;
+                                    if (v<1) v=1;
+                                    setReturnQtyBySize(prev=>({...prev,[g.size]:v}));
+                                  }}
+                                  style={{...inp,width:70,padding:"6px 10px"}}/>
+                                <span style={{fontSize:12,color:"#9ca3af"}}>개</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1531,18 +1673,19 @@ export default function App() {
                   </>)}
                   <div><div style={lbl}>반품일</div><input type="date" value={newReturn.date} onChange={e=>setNewReturn(p=>({...p,date:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>반품 사유</div><input value={newReturn.reason} onChange={e=>setNewReturn(p=>({...p,reason:e.target.value}))} placeholder="예: 불량, 사이즈 오류" style={inp}/></div>
+                  <div><div style={lbl}>반품 배송비 (원)</div><input type="number" min="0" value={newReturn.shippingFee} onChange={e=>setNewReturn(p=>({...p,shippingFee:e.target.value}))} placeholder="발생 시 입력 (경비로 자동 처리)" style={inp}/></div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newReturn.memo} onChange={e=>setNewReturn(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
                 <div style={{display:"flex",gap:8,marginTop:14}}>
                   <button onClick={()=>{
                     const selectedIds = newReturn.purchaseIds||[];
                     if (selectedIds.length>0) {
-                      // 11번(연속): 선택한 매입 건을 사이즈별로 묶어 각각 별도 반품 건으로 저장 -> 서로 다른 사이즈를 동시에 선택해도 재고에 정확히 반영됨
+                      // 사이즈별로 묶어 각각 별도 반품 건으로 저장. 수량은 직접 입력한 값(returnQtyBySize) 우선 사용 -> 일부 반품 대응
                       const selectedPurchases = purchases.filter(p=>selectedIds.includes(p.id));
                       const bySize = {};
                       selectedPurchases.forEach(p=>{
-                        if (!bySize[p.size]) bySize[p.size] = { size:p.size, qty:0, purchaseIds:[] };
-                        bySize[p.size].qty += Number(p.qty||1);
+                        if (!bySize[p.size]) bySize[p.size] = { size:p.size, maxQty:0, purchaseIds:[] };
+                        bySize[p.size].maxQty += Number(p.qty||1);
                         bySize[p.size].purchaseIds.push(p.id);
                       });
                       const newRecords = Object.values(bySize).map(g => ({
@@ -1551,7 +1694,7 @@ export default function App() {
                         productName: newReturn.productName,
                         productCode: newReturn.productCode,
                         size: g.size,
-                        qty: g.qty,
+                        qty: returnQtyBySize[g.size] ?? g.maxQty,
                         purchaseIds: g.purchaseIds,
                         date: newReturn.date,
                         reason: newReturn.reason,
@@ -1562,9 +1705,17 @@ export default function App() {
                       if(!newReturn.productName){alert("상품명을 입력해주세요!");return;}
                       setReturns(prev=>[...prev,{...newReturn,id:generateId(),qty:Number(newReturn.qty)||1}]);
                     }
-                    setReturnCodeSearch(""); setNewReturn({...emptyReturn}); setShowAddReturn(false);
+                    // 반품 배송비가 있으면 경비로 자동 등록
+                    if (Number(newReturn.shippingFee) > 0) {
+                      setExpenses(prev=>[...prev, {
+                        id: generateId(), type: "반품배송비", itemName: `${newReturn.productName} 반품 배송비`,
+                        qty: "1", purchasePlace: "", amount: Number(newReturn.shippingFee),
+                        date: newReturn.date, memo: `반품 배송비 (${newReturn.productCode||"-"})`,
+                      }]);
+                    }
+                    setReturnCodeSearch(""); setNewReturn({...emptyReturn}); setReturnQtyBySize({}); setShowAddReturn(false);
                   }} style={btn1}>저장</button>
-                  <button onClick={()=>{setShowAddReturn(false);setReturnCodeSearch("");setNewReturn({...emptyReturn});}} style={btn2}>취소</button>
+                  <button onClick={()=>{setShowAddReturn(false);setReturnCodeSearch("");setNewReturn({...emptyReturn});setReturnQtyBySize({});}} style={btn2}>취소</button>
                 </div>
               </div>
             )}
@@ -1652,16 +1803,30 @@ export default function App() {
         {/* 경비 */}
         {tab==="expenses" && (
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <div style={{fontSize:15,fontWeight:700}}>경비 내역</div>
               <button onClick={()=>setShowAddExpense(true)} style={btn1}>+ 경비 추가</button>
             </div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:14}}>총 경비 합계 <span style={{color:"#dc2626",fontWeight:700}}>{formatNum(totalExpenses)}원</span></div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10,marginBottom:14}}>
               {EXPENSE_TYPES.map(type=>{
-                const total=expenses.filter(e=>e.type===type).reduce((s,e)=>s+Number(e.amount),0);
-                return <div key={type} style={{background:"#fff",borderRadius:10,padding:"12px 14px",border:"1px solid #e5e7eb"}}><div style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{type}</div><div style={{fontSize:15,fontWeight:700,color:"#dc2626"}}>{formatNum(total)}원</div></div>;
+                const total=expenses.filter(e=>e.type===type).reduce((s,e)=>s+Number(e.amount)*Number(e.qty||1),0);
+                const isSelected = selectedExpenseType===type;
+                return (
+                  <div key={type} onClick={()=>{setSelectedExpenseType(isSelected?null:type);setExpandedExpenseDate(null);}}
+                    style={{background:isSelected?"#ede9fe":"#fff",borderRadius:10,padding:"12px 14px",border:isSelected?"2px solid #6d28d9":"1px solid #e5e7eb",cursor:"pointer"}}>
+                    <div style={{fontSize:11,color:"#6b7280",marginBottom:4}}>{type}</div>
+                    <div style={{fontSize:15,fontWeight:700,color:"#dc2626"}}>{formatNum(total)}원</div>
+                  </div>
+                );
               })}
             </div>
+            {selectedExpenseType && (
+              <div style={{fontSize:12,color:"#6d28d9",background:"#ede9fe",borderRadius:8,padding:"8px 12px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span><b>{selectedExpenseType}</b> 항목만 보는 중</span>
+                <span style={{cursor:"pointer",textDecoration:"underline"}} onClick={()=>setSelectedExpenseType(null)}>전체보기</span>
+              </div>
+            )}
             {showAddExpense && (
               <div style={{...cs,border:"1px solid #6d28d9"}}>
                 <div style={{fontSize:13,fontWeight:700,marginBottom:14}}>경비 등록</div>
@@ -1695,7 +1860,9 @@ export default function App() {
             )}
             {expenses.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>경비 없음</div>
               : (() => {
-                const grouped = [...expenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
+                const filteredExpenses = selectedExpenseType ? expenses.filter(e=>e.type===selectedExpenseType) : expenses;
+                if (filteredExpenses.length===0) return <div style={{...cs,textAlign:"center",color:"#6b7280"}}>해당 항목의 경비 내역이 없어요</div>;
+                const grouped = [...filteredExpenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
                   if (!acc[e.date]) acc[e.date] = [];
                   acc[e.date].push(e);
                   return acc;
@@ -1816,7 +1983,7 @@ export default function App() {
                     {Object.entries(payGroups).sort((a,b)=>b[1].total-a[1].total).map(([payKey, group]) => {
                       const [payType, payDetail] = payKey.includes("_") ? payKey.split("_") : [payKey, ""];
                       return (
-                        <div key={payKey} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>{setSelectedFundingKey(payKey);setExpandedFundingDate(null);}}>
+                        <div key={payKey} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>{setSelectedFundingKey(payKey);setSelectedFundingMonth(null);setExpandedFundingDate(null);}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                             <div>
                               <div style={{fontWeight:700,fontSize:15}}>{payType} {payDetail && <span style={{color:"#6d28d9"}}>({payDetail})</span>}</div>
@@ -1834,10 +2001,48 @@ export default function App() {
                 );
               }
 
-              // 소분류 선택됨 → 날짜별 합계 표시
+              // 소분류 선택됨
               const group = payGroups[selectedFundingKey];
               const [payType, payDetail] = selectedFundingKey.includes("_") ? selectedFundingKey.split("_") : [selectedFundingKey, ""];
-              const dateGroups = group.items.sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
+
+              // 1단계: 월 선택 안 됨 -> 월별 합계 먼저 표시
+              if (!selectedFundingMonth) {
+                const monthGroups = group.items.reduce((acc,p)=>{
+                  const month = p.date.slice(0,7); // YYYY-MM
+                  if (!acc[month]) acc[month] = { items:[], total:0 };
+                  acc[month].items.push(p);
+                  acc[month].total += Number(p.price||0)*Number(p.qty||1);
+                  return acc;
+                }, {});
+                return (
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                      <button onClick={()=>setSelectedFundingKey(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                      <div style={{fontWeight:700,fontSize:15}}>{payType} {payDetail && `(${payDetail})`}</div>
+                      <div style={{fontSize:13,color:"#d97706",marginLeft:"auto"}}>총 {formatNum(group.total)}원</div>
+                    </div>
+                    {Object.entries(monthGroups).sort((a,b)=>b[0].localeCompare(a[0])).map(([month, mg]) => (
+                      <div key={month} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>{setSelectedFundingMonth(month);setExpandedFundingDate(null);}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:14}}>{month}</div>
+                            <div style={{fontSize:12,color:"#9ca3af"}}>{mg.items.length}건</div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{fontWeight:700,fontSize:14,color:"#d97706"}}>{formatNum(mg.total)}원</div>
+                            <span style={{color:"#9ca3af"}}>▶</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              // 2단계: 월 선택됨 -> 그 달의 일자별 합계 표시
+              const monthItems = group.items.filter(p=>p.date.slice(0,7)===selectedFundingMonth);
+              const monthTotal = monthItems.reduce((s,p)=>s+Number(p.price||0)*Number(p.qty||1),0);
+              const dateGroups = monthItems.sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
                 if (!acc[p.date]) acc[p.date] = { items:[], total:0 };
                 acc[p.date].items.push(p);
                 acc[p.date].total += Number(p.price||0)*Number(p.qty||1);
@@ -1847,9 +2052,9 @@ export default function App() {
               return (
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-                    <button onClick={()=>setSelectedFundingKey(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
-                    <div style={{fontWeight:700,fontSize:15}}>{payType} {payDetail && `(${payDetail})`}</div>
-                    <div style={{fontSize:13,color:"#d97706",marginLeft:"auto"}}>총 {formatNum(group.total)}원</div>
+                    <button onClick={()=>{setSelectedFundingMonth(null);setExpandedFundingDate(null);}} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                    <div style={{fontWeight:700,fontSize:15}}>{payType} {payDetail && `(${payDetail})`} · {selectedFundingMonth}</div>
+                    <div style={{fontSize:13,color:"#d97706",marginLeft:"auto"}}>총 {formatNum(monthTotal)}원</div>
                   </div>
                   {Object.entries(dateGroups).map(([date, dg]) => {
                     const isExpanded = expandedFundingDate === date;

@@ -241,9 +241,9 @@ function drawReceiptImg(ctx, img, rot, x, y, w, h) {
 }
 
 const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{}, category:"신발" };
-const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", memo:"" };
+const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", bizNumber:"", cardNumber:"", memo:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
-const emptyExpense = { type:"주유", itemName:"", qty:"1", purchasePlace:"", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
+const emptyExpense = { type:"주유", itemName:"", qty:"1", purchasePlace:"", amount:"", date:new Date().toISOString().slice(0,10), bizNumber:"", cardNumber:"", memo:"" };
 const emptySettlement = { platform:"포이즌", amount:"", bank:"국민", bankOther:"", fee:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"", shippingFee:"" };
 
@@ -284,6 +284,22 @@ function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
     </div>
   );
 }
+
+// 카드번호/사업자번호 등 최근 입력값을 클릭해서 바로 채울 수 있게 보여주는 칩 목록
+function RecentChips({ values, onPick }) {
+  if (!values || values.length === 0) return null;
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6}}>
+      {values.map(v => (
+        <button key={v} type="button" onClick={()=>onPick(v)}
+          style={{padding:"3px 10px",borderRadius:6,border:"1px solid #e5e7eb",background:"#f9fafb",color:"#6b7280",fontSize:11,cursor:"pointer"}}>
+          {v}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 
 function EditModal({ title, children, onSave, onDelete, onClose }) {
   return (
@@ -656,6 +672,14 @@ export default function App() {
     const avgPrice = relevantPurchases.length>0 ? relevantPurchases.reduce((s3,x)=>s3+Number(x.price||0),0)/relevantPurchases.length : 0;
     return s2 + stock*avgPrice;
   }, 0), 0);
+
+  // 최근 입력한 사업자번호/카드번호 목록 (매입+경비에서 최근 것부터, 중복 제거, 최대 6개)
+  const recentBizNumbers = [...new Set(
+    [...purchases, ...expenses].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>x.bizNumber).filter(Boolean)
+  )].slice(0,6);
+  const recentCardNumbers = [...new Set(
+    [...purchases, ...expenses].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>x.cardNumber).filter(Boolean)
+  )].slice(0,6);
 
   // 2번: 기존 상품 재고 일괄 0 초기화
   const resetAllStockToZero = () => {
@@ -1225,6 +1249,16 @@ export default function App() {
                   {[{key:"price",label:"매입가 (원)"},{key:"date",label:"매입일",type:"date"},{key:"place",label:"매입장소"}].map(f=>(
                     <div key={f.key}><div style={lbl}>{f.label}</div><input value={newPurchase[f.key]} onChange={e=>setNewPurchase(prev=>({...prev,[f.key]:e.target.value}))} type={f.type||"text"} style={inp}/></div>
                   ))}
+                  <div>
+                    <div style={lbl}>사업자번호</div>
+                    <input value={newPurchase.bizNumber} onChange={e=>setNewPurchase(prev=>({...prev,bizNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentBizNumbers} onPick={v=>setNewPurchase(prev=>({...prev,bizNumber:v}))}/>
+                  </div>
+                  <div>
+                    <div style={lbl}>사용카드번호</div>
+                    <input value={newPurchase.cardNumber} onChange={e=>setNewPurchase(prev=>({...prev,cardNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentCardNumbers} onPick={v=>setNewPurchase(prev=>({...prev,cardNumber:v}))}/>
+                  </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newPurchase.memo} onChange={e=>setNewPurchase(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
                 {/* 9번: 사이즈별 수량 - 상품 선택 후에만 표시 */}
@@ -1268,6 +1302,16 @@ export default function App() {
                   {editingPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={editingPurchase.payBrand||""} onChange={e=>setEditingPurchase(p=>({...p,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(pb=><option key={pb} value={pb}>{pb}</option>)}</select></div>}
                   {editingPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={editingPurchase.bankType||""} onChange={e=>setEditingPurchase(p=>({...p,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
                   {editingPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchase.payOther||""} onChange={e=>setEditingPurchase(p=>({...p,payOther:e.target.value}))} style={inp}/></div>}
+                  <div>
+                    <div style={lbl}>사업자번호</div>
+                    <input value={editingPurchase.bizNumber||""} onChange={e=>setEditingPurchase(p=>({...p,bizNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentBizNumbers} onPick={v=>setEditingPurchase(p=>({...p,bizNumber:v}))}/>
+                  </div>
+                  <div>
+                    <div style={lbl}>사용카드번호</div>
+                    <input value={editingPurchase.cardNumber||""} onChange={e=>setEditingPurchase(p=>({...p,cardNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentCardNumbers} onPick={v=>setEditingPurchase(p=>({...p,cardNumber:v}))}/>
+                  </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingPurchase.memo||""} onChange={e=>setEditingPurchase(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
               </EditModal>
@@ -1923,6 +1967,16 @@ export default function App() {
                   <div><div style={lbl}>수량</div><input value={newExpense.qty} onChange={e=>setNewExpense(prev=>({...prev,qty:e.target.value}))} placeholder="수량" style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={newExpense.amount} onChange={e=>setNewExpense(prev=>({...prev,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={newExpense.date} onChange={e=>setNewExpense(prev=>({...prev,date:e.target.value}))} style={inp}/></div>
+                  <div>
+                    <div style={lbl}>사업자번호</div>
+                    <input value={newExpense.bizNumber} onChange={e=>setNewExpense(prev=>({...prev,bizNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentBizNumbers} onPick={v=>setNewExpense(prev=>({...prev,bizNumber:v}))}/>
+                  </div>
+                  <div>
+                    <div style={lbl}>사용카드번호</div>
+                    <input value={newExpense.cardNumber} onChange={e=>setNewExpense(prev=>({...prev,cardNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentCardNumbers} onPick={v=>setNewExpense(prev=>({...prev,cardNumber:v}))}/>
+                  </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newExpense.memo} onChange={e=>setNewExpense(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
                 <div style={{display:"flex",gap:8,marginTop:12}}><button onClick={addExpense} style={btn1}>저장</button><button onClick={()=>setShowAddExpense(false)} style={btn2}>취소</button></div>
@@ -1940,6 +1994,16 @@ export default function App() {
                   <div><div style={lbl}>수량</div><input value={editingExpense.qty||""} onChange={e=>setEditingExpense(p=>({...p,qty:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={editingExpense.amount||""} onChange={e=>setEditingExpense(p=>({...p,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingExpense.date||""} onChange={e=>setEditingExpense(p=>({...p,date:e.target.value}))} style={inp}/></div>
+                  <div>
+                    <div style={lbl}>사업자번호</div>
+                    <input value={editingExpense.bizNumber||""} onChange={e=>setEditingExpense(p=>({...p,bizNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentBizNumbers} onPick={v=>setEditingExpense(p=>({...p,bizNumber:v}))}/>
+                  </div>
+                  <div>
+                    <div style={lbl}>사용카드번호</div>
+                    <input value={editingExpense.cardNumber||""} onChange={e=>setEditingExpense(p=>({...p,cardNumber:e.target.value}))} style={inp}/>
+                    <RecentChips values={recentCardNumbers} onPick={v=>setEditingExpense(p=>({...p,cardNumber:v}))}/>
+                  </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingExpense.memo||""} onChange={e=>setEditingExpense(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
               </EditModal>

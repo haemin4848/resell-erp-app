@@ -333,6 +333,7 @@ export default function App() {
   const [inspectionSaleSearch, setInspectionSaleSearch] = useState("");
   const [selectedInspectionSaleId, setSelectedInspectionSaleId] = useState("");
   const [inspectionReason, setInspectionReason] = useState("");
+  const [editingInspection, setEditingInspection] = useState(null);
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -412,6 +413,34 @@ export default function App() {
     }
     setSelectedInspectionSaleId("");
     setInspectionReason("");
+  };
+
+  // 검수 처리 이전 상태로 매출 기록을 되돌림 (수정/삭제 시 사용)
+  const revertInspection = (insp) => {
+    if (insp.result === "할인판매") {
+      setSales(prev => prev.map(s => s.id === insp.saleId ? { ...s, price: insp.originalPrice } : s));
+    } else if (insp.result === "거래실패") {
+      setSales(prev => prev.map(s => s.id === insp.saleId ? { ...s, inspectionFailed: false } : s));
+    }
+  };
+
+  const saveEditedInspection = () => {
+    const sale = sales.find(s => s.id === editingInspection.saleId);
+    if (!sale) { alert("연결된 매출 내역을 찾을 수 없어요."); return; }
+    const original = inspections.find(i => i.id === editingInspection.id);
+    revertInspection(original); // 이전 처리 되돌리기
+    setInspections(prev => prev.filter(i => i.id !== editingInspection.id));
+    // 되돌린 원래 가격 기준으로 새 결과를 다시 적용
+    const revertedSale = { ...sale, price: original.result==="할인판매" ? original.originalPrice : sale.price, inspectionFailed: false };
+    processInspection(revertedSale, editingInspection.result, editingInspection.reason);
+    setEditingInspection(null);
+  };
+
+  const deleteInspection = (insp) => {
+    if (!window.confirm("이 검수 처리를 삭제할까요? 매출 내역이 검수 이전 상태로 되돌아갑니다.")) return;
+    revertInspection(insp);
+    setInspections(prev => prev.filter(i => i.id !== insp.id));
+    setEditingInspection(null);
   };
 
   const handleImageUpload = (e, isEdit=false) => {
@@ -1473,18 +1502,38 @@ export default function App() {
             <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8}}>검수 처리 내역</div>
             {inspections.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>처리된 검수 내역이 없어요</div> : (
               [...inspections].sort((a,b)=>b.date.localeCompare(a.date)).map(i=>(
-                <div key={i.id} style={{...cs,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div key={i.id} style={{...cs,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingInspection({...i})}>
                   <div>
                     <div style={{fontWeight:600,fontSize:14}}>{i.productName} · {i.size} · {i.qty}개</div>
                     <div style={{fontSize:12,color:"#9ca3af"}}>{i.date} · 품번 {i.productCode||"-"}</div>
                     {i.reason && <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>사유: {i.reason}</div>}
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontWeight:700,color:i.result==="할인판매"?"#d97706":"#dc2626"}}>{i.result}</div>
+                    <div style={{fontWeight:700,color:i.result==="할인판매"?"#d97706":"#dc2626"}}>{i.result} <span style={{fontSize:11,color:"#9ca3af"}}>✏️</span></div>
                     {i.result==="할인판매" && <div style={{fontSize:12,color:"#9ca3af"}}>{formatNum(i.originalPrice)}원 → {formatNum(i.newPrice)}원</div>}
                   </div>
                 </div>
               ))
+            )}
+
+            {editingInspection && (
+              <EditModal title="검수 처리 수정"
+                onSave={saveEditedInspection}
+                onDelete={()=>deleteInspection(editingInspection)}
+                onClose={()=>setEditingInspection(null)}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div><div style={lbl}>상품명</div><input value={editingInspection.productName||""} disabled style={{...inp,background:"#f3f4f6"}}/></div>
+                  <div><div style={lbl}>사이즈</div><input value={editingInspection.size||""} disabled style={{...inp,background:"#f3f4f6"}}/></div>
+                  <div><div style={lbl}>결과</div>
+                    <select value={editingInspection.result} onChange={e=>setEditingInspection(p=>({...p,result:e.target.value}))} style={sel}>
+                      <option value="할인판매">할인판매 (10% 할인)</option>
+                      <option value="거래실패">거래실패 (재고 회수)</option>
+                    </select>
+                  </div>
+                  <div><div style={lbl}>날짜</div><input type="date" value={editingInspection.date||""} onChange={e=>setEditingInspection(p=>({...p,date:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>사유</div><input value={editingInspection.reason||""} onChange={e=>setEditingInspection(p=>({...p,reason:e.target.value}))} placeholder="예: 사이즈 오기입, 가품 의심, 박스 손상 등" style={inp}/></div>
+                </div>
+              </EditModal>
             )}
           </div>
         )}

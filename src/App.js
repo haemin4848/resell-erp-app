@@ -333,6 +333,7 @@ export default function App() {
   const [inspectionSaleSearch, setInspectionSaleSearch] = useState("");
   const [selectedInspectionSaleId, setSelectedInspectionSaleId] = useState("");
   const [inspectionReason, setInspectionReason] = useState("");
+  const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().slice(0,10));
   const [editingInspection, setEditingInspection] = useState(null);
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
@@ -391,20 +392,21 @@ export default function App() {
 
   // 16번: 검수 처리 - 할인판매(매출액 90%로 자동 수정) / 거래실패(매출 취소 -> 재고 자동 회수)
   // 17번: 처리 시 사유도 함께 저장
-  const processInspection = (sale, result, reason) => {
+  const processInspection = (sale, result, reason, date) => {
+    const finalDate = date || new Date().toISOString().slice(0,10);
     if (result === "할인판매") {
       const originalPrice = Number(sale.price);
       const discountedPrice = Math.round(originalPrice * 0.9);
       setSales(prev => prev.map(s => s.id === sale.id ? { ...s, price: discountedPrice } : s));
       setInspections(prev => [...prev, {
         id: generateId(), saleId: sale.id, productId: sale.productId, productName: sale.productName,
-        productCode: sale.productCode, size: sale.size, qty: sale.qty, date: new Date().toISOString().slice(0,10),
+        productCode: sale.productCode, size: sale.size, qty: sale.qty, date: finalDate,
         result, originalPrice, newPrice: discountedPrice, reason: reason||"",
       }]);
     } else if (result === "거래실패") {
       setInspections(prev => [...prev, {
         id: generateId(), saleId: sale.id, productId: sale.productId, productName: sale.productName,
-        productCode: sale.productCode, size: sale.size, qty: sale.qty, date: new Date().toISOString().slice(0,10),
+        productCode: sale.productCode, size: sale.size, qty: sale.qty, date: finalDate,
         result, originalPrice: Number(sale.price), newPrice: 0, reason: reason||"",
       }]);
       // 매출 기록은 그대로 두고 "검수불통" 표시만 남김. 재고 계산(calcStock)에서 inspectionFailed=true인 매출은
@@ -413,6 +415,7 @@ export default function App() {
     }
     setSelectedInspectionSaleId("");
     setInspectionReason("");
+    setInspectionDate(new Date().toISOString().slice(0,10));
   };
 
   // 검수 처리 이전 상태로 매출 기록을 되돌림 (수정/삭제 시 사용)
@@ -425,14 +428,26 @@ export default function App() {
   };
 
   const saveEditedInspection = () => {
+    const original = inspections.find(i => i.id === editingInspection.id);
+    if (!original) { setEditingInspection(null); return; }
+
+    if (original.result === editingInspection.result) {
+      // 결과(할인판매/거래실패)가 그대로면 매출 쪽은 건드리지 않고 검수 기록의 날짜/사유만 바로 수정
+      setInspections(prev => prev.map(i => i.id === editingInspection.id
+        ? { ...i, date: editingInspection.date, reason: editingInspection.reason }
+        : i
+      ));
+      setEditingInspection(null);
+      return;
+    }
+
+    // 결과 자체를 바꾼 경우에만 매출 쪽 이전 처리를 되돌리고 새 결과를 다시 적용
     const sale = sales.find(s => s.id === editingInspection.saleId);
     if (!sale) { alert("연결된 매출 내역을 찾을 수 없어요."); return; }
-    const original = inspections.find(i => i.id === editingInspection.id);
-    revertInspection(original); // 이전 처리 되돌리기
+    revertInspection(original);
     setInspections(prev => prev.filter(i => i.id !== editingInspection.id));
-    // 되돌린 원래 가격 기준으로 새 결과를 다시 적용
     const revertedSale = { ...sale, price: original.result==="할인판매" ? original.originalPrice : sale.price, inspectionFailed: false };
-    processInspection(revertedSale, editingInspection.result, editingInspection.reason);
+    processInspection(revertedSale, editingInspection.result, editingInspection.reason, editingInspection.date);
     setEditingInspection(null);
   };
 
@@ -1450,7 +1465,7 @@ export default function App() {
 
             <div style={{...cs,marginBottom:16}}>
               <div style={lbl}>판매 내역에서 상품 선택 (품번 또는 상품명으로 검색)</div>
-              <input value={inspectionSaleSearch} onChange={e=>{setInspectionSaleSearch(e.target.value);setSelectedInspectionSaleId("");setInspectionReason("");}} placeholder="품번 또는 상품명 입력" style={inp}/>
+              <input value={inspectionSaleSearch} onChange={e=>{setInspectionSaleSearch(e.target.value);setSelectedInspectionSaleId("");setInspectionReason("");setInspectionDate(new Date().toISOString().slice(0,10));}} placeholder="품번 또는 상품명 입력" style={inp}/>
               {inspectionSaleSearch && (() => {
                 const inspectedSaleIds = new Set(inspections.map(i=>i.saleId));
                 const kw = inspectionSaleSearch.trim().toLowerCase();
@@ -1483,16 +1498,16 @@ export default function App() {
               return (
                 <div style={{...cs,border:"1px solid #6d28d9",marginBottom:16}}>
                   <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>{sale.productName} · {sale.size} · 현재 매출액 {formatNum(sale.price)}원</div>
-                  <div style={{marginBottom:10}}>
-                    <div style={lbl}>사유 (선택)</div>
-                    <input value={inspectionReason} onChange={e=>setInspectionReason(e.target.value)} placeholder="예: 사이즈 오기입, 가품 의심, 박스 손상 등" style={inp}/>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><div style={lbl}>검수일</div><input type="date" value={inspectionDate} onChange={e=>setInspectionDate(e.target.value)} style={inp}/></div>
+                    <div><div style={lbl}>사유 (선택)</div><input value={inspectionReason} onChange={e=>setInspectionReason(e.target.value)} placeholder="예: 사이즈 오기입, 가품 의심, 박스 손상 등" style={inp}/></div>
                   </div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     <button onClick={()=>{
-                      if(window.confirm(`할인판매로 처리할까요?\n매출액이 ${formatNum(sale.price)}원 → ${formatNum(discounted)}원(10% 할인)으로 자동 수정됩니다.`)) processInspection(sale,"할인판매",inspectionReason);
+                      if(window.confirm(`할인판매로 처리할까요?\n매출액이 ${formatNum(sale.price)}원 → ${formatNum(discounted)}원(10% 할인)으로 자동 수정됩니다.`)) processInspection(sale,"할인판매",inspectionReason,inspectionDate);
                     }} style={btn2}>💸 할인판매 (10% 할인 → {formatNum(discounted)}원)</button>
                     <button onClick={()=>{
-                      if(window.confirm("거래실패로 처리할까요?\n매출 내역은 삭제되지 않고 '검수불통'으로 표시되며, 해당 재고는 다시 복원됩니다.")) processInspection(sale,"거래실패",inspectionReason);
+                      if(window.confirm("거래실패로 처리할까요?\n매출 내역은 삭제되지 않고 '검수불통'으로 표시되며, 해당 재고는 다시 복원됩니다.")) processInspection(sale,"거래실패",inspectionReason,inspectionDate);
                     }} style={btnDanger}>❌ 거래실패 (재고 회수)</button>
                   </div>
                 </div>

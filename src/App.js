@@ -244,7 +244,7 @@ const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", si
 const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", memo:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyExpense = { type:"주유", itemName:"", qty:"1", purchasePlace:"", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
-const emptySettlement = { platform:"포이즌", amount:"", date:new Date().toISOString().slice(0,10), memo:"" };
+const emptySettlement = { platform:"포이즌", amount:"", bank:"국민", bankOther:"", fee:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyReturn = { productId:"", productName:"", productCode:"", size:"", qty:"1", purchaseId:"", date:new Date().toISOString().slice(0,10), reason:"", memo:"", shippingFee:"" };
 
 // 5번: EditModal을 App 밖에 정의해야 리렌더링시 커서 안 날아감
@@ -1478,11 +1478,15 @@ export default function App() {
                   <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:10}}>
                     {matched.map(s=>{
                       const selected = selectedInspectionSaleId===s.id;
+                      const prod = products.find(p=>p.id===s.productId);
                       return (
                         <div key={s.id} onClick={()=>{setSelectedInspectionSaleId(s.id);setInspectionReason("");}}
-                          style={{padding:"10px 14px",borderRadius:8,border:selected?"2px solid #6d28d9":"1px solid #e5e7eb",background:selected?"#ede9fe":"#f9fafb",cursor:"pointer",fontSize:13}}>
-                          <span style={{fontWeight:600}}>{s.date}</span> · {s.productName} · 품번 {s.productCode||"-"} · {s.size} · {s.qty}개 · {formatNum(s.price)}원 · {s.platform}
-                          {selected && <span style={{color:"#6d28d9",marginLeft:8,fontWeight:700}}>✓ 선택됨</span>}
+                          style={{padding:"10px 14px",borderRadius:8,border:selected?"2px solid #6d28d9":"1px solid #e5e7eb",background:selected?"#ede9fe":"#f9fafb",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:10}}>
+                          {prod?.image ? <img src={prod.image} alt="" style={{width:36,height:36,borderRadius:6,objectFit:"contain",background:"#fff",flexShrink:0}}/> : <div style={{width:36,height:36,borderRadius:6,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>👟</div>}
+                          <div>
+                            <span style={{fontWeight:600}}>{s.date}</span> · {s.productName} · 품번 {s.productCode||"-"} · {s.size} · {s.qty}개 · {formatNum(s.price)}원 · {s.platform}
+                            {selected && <span style={{color:"#6d28d9",marginLeft:8,fontWeight:700}}>✓ 선택됨</span>}
+                          </div>
                         </div>
                       );
                     })}
@@ -1494,10 +1498,14 @@ export default function App() {
             {selectedInspectionSaleId && (() => {
               const sale = sales.find(s=>s.id===selectedInspectionSaleId);
               if (!sale) return null;
+              const prod = products.find(p=>p.id===sale.productId);
               const discounted = Math.round(Number(sale.price)*0.9);
               return (
                 <div style={{...cs,border:"1px solid #6d28d9",marginBottom:16}}>
-                  <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>{sale.productName} · {sale.size} · 현재 매출액 {formatNum(sale.price)}원</div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                    {prod?.image ? <img src={prod.image} alt="" style={{width:52,height:52,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:52,height:52,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:22}}>👟</div>}
+                    <div style={{fontSize:13,fontWeight:700}}>{sale.productName} · {sale.size} · 현재 매출액 {formatNum(sale.price)}원</div>
+                  </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div><div style={lbl}>검수일</div><input type="date" value={inspectionDate} onChange={e=>setInspectionDate(e.target.value)} style={inp}/></div>
                     <div><div style={lbl}>사유 (선택)</div><input value={inspectionReason} onChange={e=>setInspectionReason(e.target.value)} placeholder="예: 사이즈 오기입, 가품 의심, 박스 손상 등" style={inp}/></div>
@@ -1516,19 +1524,25 @@ export default function App() {
 
             <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8}}>검수 처리 내역</div>
             {inspections.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>처리된 검수 내역이 없어요</div> : (
-              [...inspections].sort((a,b)=>b.date.localeCompare(a.date)).map(i=>(
+              [...inspections].sort((a,b)=>b.date.localeCompare(a.date)).map(i=>{
+                const prod = products.find(p=>p.id===i.productId);
+                return (
                 <div key={i.id} style={{...cs,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingInspection({...i})}>
-                  <div>
-                    <div style={{fontWeight:600,fontSize:14}}>{i.productName} · {i.size} · {i.qty}개</div>
-                    <div style={{fontSize:12,color:"#9ca3af"}}>{i.date} · 품번 {i.productCode||"-"}</div>
-                    {i.reason && <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>사유: {i.reason}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    {prod?.image ? <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:40,height:40,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>👟</div>}
+                    <div>
+                      <div style={{fontWeight:600,fontSize:14}}>{i.productName} · {i.size} · {i.qty}개</div>
+                      <div style={{fontSize:12,color:"#9ca3af"}}>{i.date} · 품번 {i.productCode||"-"}</div>
+                      {i.reason && <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>사유: {i.reason}</div>}
+                    </div>
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div style={{fontWeight:700,color:i.result==="할인판매"?"#d97706":"#dc2626"}}>{i.result} <span style={{fontSize:11,color:"#9ca3af"}}>✏️</span></div>
                     {i.result==="할인판매" && <div style={{fontSize:12,color:"#9ca3af"}}>{formatNum(i.originalPrice)}원 → {formatNum(i.newPrice)}원</div>}
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
 
             {editingInspection && (
@@ -1998,8 +2012,11 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>플랫폼</div><select value={newSettlement.platform} onChange={e=>setNewSettlement(prev=>({...prev,platform:e.target.value}))} style={sel}>{SETTLEMENT_PLATFORMS.map(p=><option key={p} value={p}>{p}</option>)}</select></div>
                   <div><div style={lbl}>정산 금액</div><input value={newSettlement.amount} onChange={e=>setNewSettlement(prev=>({...prev,amount:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>정산은행</div><select value={newSettlement.bank} onChange={e=>setNewSettlement(prev=>({...prev,bank:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>
+                  {newSettlement.bank==="기타" && <div><div style={lbl}>은행명 직접입력</div><input value={newSettlement.bankOther} onChange={e=>setNewSettlement(prev=>({...prev,bankOther:e.target.value}))} placeholder="은행명 입력" style={inp}/></div>}
+                  <div><div style={lbl}>수수료 (원)</div><input value={newSettlement.fee} onChange={e=>setNewSettlement(prev=>({...prev,fee:e.target.value}))} placeholder="발생 시 입력" style={inp}/></div>
                   <div><div style={lbl}>정산일</div><input type="date" value={newSettlement.date} onChange={e=>setNewSettlement(prev=>({...prev,date:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>메모</div><input value={newSettlement.memo} onChange={e=>setNewSettlement(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newSettlement.memo} onChange={e=>setNewSettlement(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
                 <div style={{display:"flex",gap:8,marginTop:12}}><button onClick={addSettlement} style={btn1}>저장</button><button onClick={()=>setShowAddSettlement(false)} style={btn2}>취소</button></div>
               </div>
@@ -2012,8 +2029,11 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={lbl}>플랫폼</div><select value={editingSettlement.platform} onChange={e=>setEditingSettlement(p=>({...p,platform:e.target.value}))} style={sel}>{SETTLEMENT_PLATFORMS.map(p=><option key={p} value={p}>{p}</option>)}</select></div>
                   <div><div style={lbl}>금액</div><input value={editingSettlement.amount||""} onChange={e=>setEditingSettlement(p=>({...p,amount:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>정산은행</div><select value={editingSettlement.bank||"국민"} onChange={e=>setEditingSettlement(p=>({...p,bank:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>
+                  {editingSettlement.bank==="기타" && <div><div style={lbl}>은행명 직접입력</div><input value={editingSettlement.bankOther||""} onChange={e=>setEditingSettlement(p=>({...p,bankOther:e.target.value}))} placeholder="은행명 입력" style={inp}/></div>}
+                  <div><div style={lbl}>수수료 (원)</div><input value={editingSettlement.fee||""} onChange={e=>setEditingSettlement(p=>({...p,fee:e.target.value}))} placeholder="발생 시 입력" style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingSettlement.date||""} onChange={e=>setEditingSettlement(p=>({...p,date:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>메모</div><input value={editingSettlement.memo||""} onChange={e=>setEditingSettlement(p=>({...p,memo:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingSettlement.memo||""} onChange={e=>setEditingSettlement(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
               </EditModal>
             )}
@@ -2021,7 +2041,15 @@ export default function App() {
               : [...settlements].reverse().map(s=>(
                 <div key={s.id} style={{...cs,marginBottom:10,cursor:"pointer"}} onClick={()=>setEditingSettlement({...s})}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div><div style={{fontWeight:700,fontSize:14}}>{s.platform}</div><div style={{fontSize:11,color:"#6b7280"}}>{s.date} {s.memo&&`· ${s.memo}`}</div></div>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14}}>{s.platform}</div>
+                      <div style={{fontSize:11,color:"#6b7280"}}>
+                        {s.date}
+                        {s.bank && ` · ${s.bank==="기타"?(s.bankOther||"기타"):s.bank}`}
+                        {Number(s.fee)>0 && ` · 수수료 ${formatNum(s.fee)}원`}
+                        {s.memo && ` · ${s.memo}`}
+                      </div>
+                    </div>
                     <div style={{fontSize:13,fontWeight:700,color:"#0369a1"}}>{formatNum(s.amount)}원</div>
                   </div>
                 </div>

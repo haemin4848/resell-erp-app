@@ -285,21 +285,6 @@ function SizePicker({ data, setter, showQty=false, toggleSize, setSizeQty }) {
   );
 }
 
-// 카드번호/사업자번호 등 최근 입력값을 클릭해서 바로 채울 수 있게 보여주는 칩 목록
-function RecentChips({ values, onPick }) {
-  if (!values || values.length === 0) return null;
-  return (
-    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6}}>
-      {values.map(v => (
-        <button key={v} type="button" onClick={()=>onPick(v)}
-          style={{padding:"3px 10px",borderRadius:6,border:"1px solid #e5e7eb",background:"#f9fafb",color:"#6b7280",fontSize:11,cursor:"pointer"}}>
-          {v}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 
 function EditModal({ title, children, onSave, onDelete, onClose }) {
   return (
@@ -335,6 +320,8 @@ export default function App() {
   const [trash, setTrash] = useDB("trash");
   const [receipts, setReceipts] = useDB("receipts");
   const [inspections, setInspections] = useDB("inspections");
+  const [cards, setCards] = useDB("cards");
+  const [vendors, setVendors] = useDB("vendors");
   const loaded = prodLoaded && salesLoaded && purchLoaded;
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
@@ -351,6 +338,12 @@ export default function App() {
   const [inspectionReason, setInspectionReason] = useState("");
   const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().slice(0,10));
   const [editingInspection, setEditingInspection] = useState(null);
+  const [showCardManager, setShowCardManager] = useState(false);
+  const [newCard, setNewCard] = useState({ name:"", number:"" });
+  const [editingCard, setEditingCard] = useState(null);
+  const [showVendorManager, setShowVendorManager] = useState(false);
+  const [newVendor, setNewVendor] = useState({ name:"", bizNumber:"" });
+  const [editingVendor, setEditingVendor] = useState(null);
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -366,8 +359,14 @@ export default function App() {
   const [expandedReturnDate, setExpandedReturnDate] = useState(null);
   const [returnQtyBySize, setReturnQtyBySize] = useState({});
   const [expandedStockId, setExpandedStockId] = useState(null);
+  const [selectedStockBrand, setSelectedStockBrand] = useState(null);
+  const [selectedStockCategory, setSelectedStockCategory] = useState(null);
   const [selectedFundingKey, setSelectedFundingKey] = useState(null);
   const [selectedFundingMonth, setSelectedFundingMonth] = useState(null);
+  const [selectedPurchaseMonth, setSelectedPurchaseMonth] = useState(null);
+  const [selectedSaleMonth, setSelectedSaleMonth] = useState(null);
+  const [selectedInspectionMonth, setSelectedInspectionMonth] = useState(null);
+  const [selectedExpenseMonth, setSelectedExpenseMonth] = useState(null);
   const [expandedFundingDate, setExpandedFundingDate] = useState(null);
   const [scanInput, setScanInput] = useState("");
   const [scanResult, setScanResult] = useState(null);
@@ -472,6 +471,38 @@ export default function App() {
     revertInspection(insp);
     setInspections(prev => prev.filter(i => i.id !== insp.id));
     setEditingInspection(null);
+  };
+
+  // ---- 19번: 카드 목록 관리 ----
+  const addCard = () => {
+    if (!newCard.name || !newCard.number) { alert("카드 이름과 카드번호를 입력해주세요."); return; }
+    setCards(prev => [...prev, { ...newCard, id: generateId() }]);
+    setNewCard({ name:"", number:"" });
+  };
+  const saveEditedCard = () => {
+    setCards(prev => prev.map(c => c.id===editingCard.id ? editingCard : c));
+    setEditingCard(null);
+  };
+  const deleteCard = (id) => {
+    if (!window.confirm("이 카드를 목록에서 삭제할까요?")) return;
+    setCards(prev => prev.filter(c => c.id !== id));
+    setEditingCard(null);
+  };
+
+  // ---- 20번: 거래처 목록 관리 ----
+  const addVendor = () => {
+    if (!newVendor.name || !newVendor.bizNumber) { alert("거래처명과 사업자번호를 입력해주세요."); return; }
+    setVendors(prev => [...prev, { ...newVendor, id: generateId() }]);
+    setNewVendor({ name:"", bizNumber:"" });
+  };
+  const saveEditedVendor = () => {
+    setVendors(prev => prev.map(v => v.id===editingVendor.id ? editingVendor : v));
+    setEditingVendor(null);
+  };
+  const deleteVendor = (id) => {
+    if (!window.confirm("이 거래처를 목록에서 삭제할까요?")) return;
+    setVendors(prev => prev.filter(v => v.id !== id));
+    setEditingVendor(null);
   };
 
   const handleImageUpload = (e, isEdit=false) => {
@@ -672,14 +703,6 @@ export default function App() {
     const avgPrice = relevantPurchases.length>0 ? relevantPurchases.reduce((s3,x)=>s3+Number(x.price||0),0)/relevantPurchases.length : 0;
     return s2 + stock*avgPrice;
   }, 0), 0);
-
-  // 최근 입력한 사업자번호/카드번호 목록 (매입+경비에서 최근 것부터, 중복 제거, 최대 6개)
-  const recentBizNumbers = [...new Set(
-    [...purchases, ...expenses].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>x.bizNumber).filter(Boolean)
-  )].slice(0,6);
-  const recentCardNumbers = [...new Set(
-    [...purchases, ...expenses].sort((a,b)=>b.date.localeCompare(a.date)).map(x=>x.cardNumber).filter(Boolean)
-  )].slice(0,6);
 
   // 2번: 기존 상품 재고 일괄 0 초기화
   const resetAllStockToZero = () => {
@@ -1242,7 +1265,16 @@ export default function App() {
                       {PAYMENT_TYPES.map(p=><option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
-                  {newPurchase.payType==="카드" && <div><div style={lbl}>카드사</div><select value={newPurchase.cardType} onChange={e=>setNewPurchase(prev=>({...prev,cardType:e.target.value}))} style={sel}>{CARD_TYPES.map(c=><option key={c} value={c}>{c}</option>)}</select></div>}
+                  {newPurchase.payType==="카드" && <div>
+                    <div style={lbl}>카드 선택 <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
+                    <select value={newPurchase.cardType} onChange={e=>{
+                      const picked = cards.find(c=>c.name===e.target.value);
+                      setNewPurchase(prev=>({...prev, cardType:e.target.value, cardNumber: picked?picked.number:prev.cardNumber}));
+                    }} style={sel}>
+                      <option value="">선택 안 함</option>
+                      {cards.map(c=><option key={c.id} value={c.name}>{c.name} ({c.number})</option>)}
+                    </select>
+                  </div>}
                   {newPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={newPurchase.payBrand} onChange={e=>setNewPurchase(prev=>({...prev,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
                   {newPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={newPurchase.bankType} onChange={e=>setNewPurchase(prev=>({...prev,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
                   {newPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={newPurchase.payOther} onChange={e=>setNewPurchase(prev=>({...prev,payOther:e.target.value}))} placeholder="직접 입력" style={inp}/></div>}
@@ -1250,14 +1282,19 @@ export default function App() {
                     <div key={f.key}><div style={lbl}>{f.label}</div><input value={newPurchase[f.key]} onChange={e=>setNewPurchase(prev=>({...prev,[f.key]:e.target.value}))} type={f.type||"text"} style={inp}/></div>
                   ))}
                   <div>
-                    <div style={lbl}>사업자번호</div>
-                    <input value={newPurchase.bizNumber} onChange={e=>setNewPurchase(prev=>({...prev,bizNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentBizNumbers} onPick={v=>setNewPurchase(prev=>({...prev,bizNumber:v}))}/>
+                    <div style={lbl}>거래처 선택 (사업자번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowVendorManager(true)}>거래처 관리</span></div>
+                    <select onChange={e=>{
+                      const picked = vendors.find(v=>v.id===e.target.value);
+                      if (picked) setNewPurchase(prev=>({...prev, bizNumber:picked.bizNumber}));
+                    }} style={sel} defaultValue="">
+                      <option value="">거래처 선택...</option>
+                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                    </select>
+                    <input value={newPurchase.bizNumber} onChange={e=>setNewPurchase(prev=>({...prev,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div>
                     <div style={lbl}>사용카드번호</div>
-                    <input value={newPurchase.cardNumber} onChange={e=>setNewPurchase(prev=>({...prev,cardNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentCardNumbers} onPick={v=>setNewPurchase(prev=>({...prev,cardNumber:v}))}/>
+                    <input value={newPurchase.cardNumber} onChange={e=>setNewPurchase(prev=>({...prev,cardNumber:e.target.value}))} placeholder="위에서 카드 선택 시 자동입력" style={inp}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newPurchase.memo} onChange={e=>setNewPurchase(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -1298,19 +1335,33 @@ export default function App() {
                       {PAYMENT_TYPES.map(pt=><option key={pt} value={pt}>{pt}</option>)}
                     </select>
                   </div>
-                  {editingPurchase.payType==="카드" && <div><div style={lbl}>카드사</div><select value={editingPurchase.cardType||""} onChange={e=>setEditingPurchase(p=>({...p,cardType:e.target.value}))} style={sel}>{CARD_TYPES.map(c=><option key={c} value={c}>{c}</option>)}</select></div>}
+                  {editingPurchase.payType==="카드" && <div>
+                    <div style={lbl}>카드 선택 <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
+                    <select value={editingPurchase.cardType||""} onChange={e=>{
+                      const picked = cards.find(c=>c.name===e.target.value);
+                      setEditingPurchase(p=>({...p, cardType:e.target.value, cardNumber: picked?picked.number:p.cardNumber}));
+                    }} style={sel}>
+                      <option value="">선택 안 함</option>
+                      {cards.map(c=><option key={c.id} value={c.name}>{c.name} ({c.number})</option>)}
+                    </select>
+                  </div>}
                   {editingPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={editingPurchase.payBrand||""} onChange={e=>setEditingPurchase(p=>({...p,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(pb=><option key={pb} value={pb}>{pb}</option>)}</select></div>}
                   {editingPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={editingPurchase.bankType||""} onChange={e=>setEditingPurchase(p=>({...p,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
                   {editingPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchase.payOther||""} onChange={e=>setEditingPurchase(p=>({...p,payOther:e.target.value}))} style={inp}/></div>}
                   <div>
-                    <div style={lbl}>사업자번호</div>
-                    <input value={editingPurchase.bizNumber||""} onChange={e=>setEditingPurchase(p=>({...p,bizNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentBizNumbers} onPick={v=>setEditingPurchase(p=>({...p,bizNumber:v}))}/>
+                    <div style={lbl}>거래처 선택 (사업자번호 자동입력)</div>
+                    <select onChange={e=>{
+                      const picked = vendors.find(v=>v.id===e.target.value);
+                      if (picked) setEditingPurchase(p=>({...p, bizNumber:picked.bizNumber}));
+                    }} style={sel} defaultValue="">
+                      <option value="">거래처 선택...</option>
+                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                    </select>
+                    <input value={editingPurchase.bizNumber||""} onChange={e=>setEditingPurchase(p=>({...p,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div>
                     <div style={lbl}>사용카드번호</div>
-                    <input value={editingPurchase.cardNumber||""} onChange={e=>setEditingPurchase(p=>({...p,cardNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentCardNumbers} onPick={v=>setEditingPurchase(p=>({...p,cardNumber:v}))}/>
+                    <input value={editingPurchase.cardNumber||""} onChange={e=>setEditingPurchase(p=>({...p,cardNumber:e.target.value}))} placeholder="위에서 카드 선택 시 자동입력" style={inp}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingPurchase.memo||""} onChange={e=>setEditingPurchase(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -1318,15 +1369,38 @@ export default function App() {
             )}
 
             {purchases.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>매입 내역 없음</div>
+              : !selectedPurchaseMonth ? (() => {
+                const monthGroups = purchases.reduce((acc,p)=>{
+                  const month = p.date.slice(0,7);
+                  if (!acc[month]) acc[month] = { items:[], total:0 };
+                  acc[month].items.push(p);
+                  acc[month].total += Number(p.price)*Number(p.qty||1);
+                  return acc;
+                }, {});
+                return Object.entries(monthGroups).sort((a,b)=>b[0].localeCompare(a[0])).map(([month,mg])=>(
+                  <div key={month} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedPurchaseMonth(month)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontWeight:700,fontSize:15}}>{month}</div><div style={{fontSize:12,color:"#9ca3af"}}>{mg.items.length}건</div></div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{fontWeight:700,fontSize:15,color:"#d97706"}}>{formatNum(mg.total)}원</div><span style={{color:"#9ca3af"}}>▶</span></div>
+                    </div>
+                  </div>
+                ));
+              })()
               : (() => {
-                const grouped = [...purchases].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
+                const monthItems = purchases.filter(p=>p.date.slice(0,7)===selectedPurchaseMonth);
+                const grouped = [...monthItems].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,p)=>{
                   if (!acc[p.date]) acc[p.date] = {};
                   const key = p.productId || p.manualName || p.productName;
                   if (!acc[p.date][key]) acc[p.date][key] = [];
                   acc[p.date][key].push(p);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([date, productGroups]) => {
+                return (<>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                  <button onClick={()=>setSelectedPurchaseMonth(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                  <div style={{fontWeight:700,fontSize:15}}>{selectedPurchaseMonth}</div>
+                </div>
+                {Object.entries(grouped).map(([date, productGroups]) => {
                   const dayTotal = Object.values(productGroups).flat().reduce((s,p)=>s+Number(p.price)*Number(p.qty||1),0);
                   return (
                     <div key={date} style={{marginBottom:16}}>
@@ -1365,7 +1439,8 @@ export default function App() {
                       })}
                     </div>
                   );
-                });
+                })}
+                </>);
               })()
             }
           </div>
@@ -1452,14 +1527,43 @@ export default function App() {
             )}
 
             {sales.length===0 ? <div style={{...cs,textAlign:"center",color:"#6b7280"}}>매출 내역 없음</div>
+              : !selectedSaleMonth ? (() => {
+                const monthGroups = sales.reduce((acc,s)=>{
+                  const month = s.date.slice(0,7);
+                  if (!acc[month]) acc[month] = { items:[], total:0, profit:0 };
+                  acc[month].items.push(s);
+                  acc[month].total += Number(s.price)*Number(s.qty||1);
+                  acc[month].profit += calcProfit(s).profit;
+                  return acc;
+                }, {});
+                return Object.entries(monthGroups).sort((a,b)=>b[0].localeCompare(a[0])).map(([month,mg])=>(
+                  <div key={month} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedSaleMonth(month)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontWeight:700,fontSize:15}}>{month}</div><div style={{fontSize:12,color:"#9ca3af"}}>{mg.items.length}건</div></div>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontWeight:700,fontSize:15,color:"#6d28d9"}}>{formatNum(mg.total)}원</div>
+                          <div style={{fontSize:12,color:mg.profit>=0?"#059669":"#dc2626"}}>수익 {formatNum(mg.profit)}원</div>
+                        </div>
+                        <span style={{color:"#9ca3af"}}>▶</span>
+                      </div>
+                    </div>
+                  </div>
+                ));
+              })()
               : (() => {
-                // 날짜별로만 그룹핑 - 개별 항목은 각각 표시
-                const grouped = [...sales].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,s)=>{
+                const monthItems = sales.filter(s=>s.date.slice(0,7)===selectedSaleMonth);
+                const grouped = [...monthItems].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,s)=>{
                   if (!acc[s.date]) acc[s.date] = [];
                   acc[s.date].push(s);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([date, items]) => {
+                return (<>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                  <button onClick={()=>setSelectedSaleMonth(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                  <div style={{fontWeight:700,fontSize:15}}>{selectedSaleMonth}</div>
+                </div>
+                {Object.entries(grouped).map(([date, items]) => {
                   const dayTotal = items.reduce((s,x)=>s+Number(x.price)*Number(x.qty||1),0);
                   const dayProfit = items.reduce((s,x)=>s+calcProfit(x).profit,0);
                   return (
@@ -1495,7 +1599,8 @@ export default function App() {
                       })}
                     </div>
                   );
-                });
+                })}
+                </>);
               })()
             }
           </div>
@@ -1567,27 +1672,49 @@ export default function App() {
             })()}
 
             <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8}}>검수 처리 내역</div>
-            {inspections.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>처리된 검수 내역이 없어요</div> : (
-              [...inspections].sort((a,b)=>b.date.localeCompare(a.date)).map(i=>{
-                const prod = products.find(p=>p.id===i.productId);
-                return (
-                <div key={i.id} style={{...cs,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingInspection({...i})}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    {prod?.image ? <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:40,height:40,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>👟</div>}
-                    <div>
-                      <div style={{fontWeight:600,fontSize:14}}>{i.productName} · {i.size} · {i.qty}개</div>
-                      <div style={{fontSize:12,color:"#9ca3af"}}>{i.date} · 품번 {i.productCode||"-"}</div>
-                      {i.reason && <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>사유: {i.reason}</div>}
+            {inspections.length===0 ? <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>처리된 검수 내역이 없어요</div>
+              : !selectedInspectionMonth ? (() => {
+                const monthGroups = inspections.reduce((acc,i)=>{
+                  const month = i.date.slice(0,7);
+                  if (!acc[month]) acc[month] = [];
+                  acc[month].push(i);
+                  return acc;
+                }, {});
+                return Object.entries(monthGroups).sort((a,b)=>b[0].localeCompare(a[0])).map(([month,items])=>(
+                  <div key={month} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedInspectionMonth(month)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontWeight:700,fontSize:15}}>{month}</div><div style={{fontSize:12,color:"#9ca3af"}}>{items.length}건</div></div>
+                      <span style={{color:"#9ca3af"}}>▶</span>
                     </div>
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontWeight:700,color:i.result==="할인판매"?"#d97706":"#dc2626"}}>{i.result} <span style={{fontSize:11,color:"#9ca3af"}}>✏️</span></div>
-                    {i.result==="할인판매" && <div style={{fontSize:12,color:"#9ca3af"}}>{formatNum(i.originalPrice)}원 → {formatNum(i.newPrice)}원</div>}
-                  </div>
+                ));
+              })()
+              : (<>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                  <button onClick={()=>setSelectedInspectionMonth(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                  <div style={{fontWeight:700,fontSize:15}}>{selectedInspectionMonth}</div>
                 </div>
-                );
-              })
-            )}
+                {[...inspections].filter(i=>i.date.slice(0,7)===selectedInspectionMonth).sort((a,b)=>b.date.localeCompare(a.date)).map(i=>{
+                  const prod = products.find(p=>p.id===i.productId);
+                  return (
+                  <div key={i.id} style={{...cs,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingInspection({...i})}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      {prod?.image ? <img src={prod.image} alt="" style={{width:40,height:40,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:40,height:40,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>👟</div>}
+                      <div>
+                        <div style={{fontWeight:600,fontSize:14}}>{i.productName} · {i.size} · {i.qty}개</div>
+                        <div style={{fontSize:12,color:"#9ca3af"}}>{i.date} · 품번 {i.productCode||"-"}</div>
+                        {i.reason && <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>사유: {i.reason}</div>}
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontWeight:700,color:i.result==="할인판매"?"#d97706":"#dc2626"}}>{i.result} <span style={{fontSize:11,color:"#9ca3af"}}>✏️</span></div>
+                      {i.result==="할인판매" && <div style={{fontSize:12,color:"#9ca3af"}}>{formatNum(i.originalPrice)}원 → {formatNum(i.newPrice)}원</div>}
+                    </div>
+                  </div>
+                  );
+                })}
+              </>)
+            }
 
             {editingInspection && (
               <EditModal title="검수 처리 수정"
@@ -1618,7 +1745,7 @@ export default function App() {
             <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>총 재고 <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(totalStockQty)}개</span> · 총 재고금액(매입가 기준) <span style={{color:"#6d28d9",fontWeight:700}}>{formatNum(Math.round(totalStockValue))}원</span></div>
             <div style={cs}>
               <div style={lbl}>품번 검색</div>
-              <input value={stockCodeSearch} onChange={e=>setStockCodeSearch(e.target.value)}
+              <input value={stockCodeSearch} onChange={e=>{setStockCodeSearch(e.target.value);setSelectedStockBrand(null);setSelectedStockCategory(null);}}
                 placeholder="품번 입력 후 검색" style={{...inp,marginBottom:0}}/>
             </div>
             {(() => {
@@ -1632,7 +1759,70 @@ export default function App() {
 
               if (withStock.length===0) return <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>{stockCodeSearch?"검색 결과 없음":"보유 재고 없음"}</div>;
 
-              return withStock.sort((a,b)=>a.brand.localeCompare(b.brand,"ko")||a.name.localeCompare(b.name,"ko")).map(p=>{
+              // 품번으로 검색 중이면 계층 없이 바로 결과 표시
+              const useHierarchy = !stockCodeSearch;
+
+              // 1단계: 브랜드 미선택 -> 브랜드별 합계
+              if (useHierarchy && !selectedStockBrand) {
+                const byBrand = withStock.reduce((acc,p)=>{
+                  const b = p.brand || "기타";
+                  if (!acc[b]) acc[b] = { items:[], qty:0 };
+                  acc[b].items.push(p);
+                  acc[b].qty += p.stockList.reduce((s,x)=>s+x.stock,0);
+                  return acc;
+                }, {});
+                return Object.entries(byBrand).sort((a,b)=>a[0].localeCompare(b[0],"ko")).map(([brand,bg])=>(
+                  <div key={brand} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedStockBrand(brand)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontWeight:700,fontSize:15}}>{brand}</div><div style={{fontSize:12,color:"#9ca3af"}}>{bg.items.length}개 품목</div></div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{fontWeight:700,fontSize:15,color:"#6d28d9"}}>{bg.qty}개</div><span style={{color:"#9ca3af"}}>▶</span></div>
+                    </div>
+                  </div>
+                ));
+              }
+
+              // 2단계: 브랜드는 선택했지만 카테고리 미선택 -> 그 브랜드 안에서 카테고리별 합계
+              if (useHierarchy && selectedStockBrand && !selectedStockCategory) {
+                const brandItems = withStock.filter(p=>(p.brand||"기타")===selectedStockBrand);
+                const byCategory = brandItems.reduce((acc,p)=>{
+                  const c = p.category || "기타";
+                  if (!acc[c]) acc[c] = { items:[], qty:0 };
+                  acc[c].items.push(p);
+                  acc[c].qty += p.stockList.reduce((s,x)=>s+x.stock,0);
+                  return acc;
+                }, {});
+                return (<>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                    <button onClick={()=>setSelectedStockBrand(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                    <div style={{fontWeight:700,fontSize:15}}>{selectedStockBrand}</div>
+                  </div>
+                  {CATEGORIES.filter(c=>byCategory[c]).map(cat=>{
+                    const cg = byCategory[cat];
+                    return (
+                      <div key={cat} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedStockCategory(cat)}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div><div style={{fontWeight:700,fontSize:15}}>{cat}</div><div style={{fontSize:12,color:"#9ca3af"}}>{cg.items.length}개 품목</div></div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{fontWeight:700,fontSize:15,color:"#6d28d9"}}>{cg.qty}개</div><span style={{color:"#9ca3af"}}>▶</span></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>);
+              }
+
+              // 3단계 (또는 검색 중): 상품별 상세 목록
+              const detailList = useHierarchy
+                ? withStock.filter(p=>(p.brand||"기타")===selectedStockBrand && (p.category||"기타")===selectedStockCategory)
+                : withStock;
+
+              return (<>
+                {useHierarchy && (
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                    <button onClick={()=>setSelectedStockCategory(null)} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                    <div style={{fontWeight:700,fontSize:15}}>{selectedStockBrand} · {selectedStockCategory}</div>
+                  </div>
+                )}
+                {detailList.sort((a,b)=>a.name.localeCompare(b.name,"ko")).map(p=>{
                 const totalStock = p.stockList.reduce((s,x)=>s+x.stock,0);
                 const isExpanded = expandedStockId === p.id;
                 // 11번: 평소엔 간략히, 클릭하면 매입/매출/반품 상세 표시
@@ -1713,7 +1903,8 @@ export default function App() {
                     })()}
                   </div>
                 );
-              });
+                })}
+              </>);
             })()}
           </div>
         )}
@@ -1968,14 +2159,26 @@ export default function App() {
                   <div><div style={lbl}>금액</div><input value={newExpense.amount} onChange={e=>setNewExpense(prev=>({...prev,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={newExpense.date} onChange={e=>setNewExpense(prev=>({...prev,date:e.target.value}))} style={inp}/></div>
                   <div>
-                    <div style={lbl}>사업자번호</div>
-                    <input value={newExpense.bizNumber} onChange={e=>setNewExpense(prev=>({...prev,bizNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentBizNumbers} onPick={v=>setNewExpense(prev=>({...prev,bizNumber:v}))}/>
+                    <div style={lbl}>거래처 선택 (사업자번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowVendorManager(true)}>거래처 관리</span></div>
+                    <select onChange={e=>{
+                      const picked = vendors.find(v=>v.id===e.target.value);
+                      if (picked) setNewExpense(prev=>({...prev, bizNumber:picked.bizNumber}));
+                    }} style={sel} defaultValue="">
+                      <option value="">거래처 선택...</option>
+                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                    </select>
+                    <input value={newExpense.bizNumber} onChange={e=>setNewExpense(prev=>({...prev,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div>
-                    <div style={lbl}>사용카드번호</div>
-                    <input value={newExpense.cardNumber} onChange={e=>setNewExpense(prev=>({...prev,cardNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentCardNumbers} onPick={v=>setNewExpense(prev=>({...prev,cardNumber:v}))}/>
+                    <div style={lbl}>카드 선택 (카드번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
+                    <select onChange={e=>{
+                      const picked = cards.find(c=>c.id===e.target.value);
+                      if (picked) setNewExpense(prev=>({...prev, cardNumber:picked.number}));
+                    }} style={sel} defaultValue="">
+                      <option value="">카드 선택...</option>
+                      {cards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
+                    </select>
+                    <input value={newExpense.cardNumber} onChange={e=>setNewExpense(prev=>({...prev,cardNumber:e.target.value}))} placeholder="사용카드번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newExpense.memo} onChange={e=>setNewExpense(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -1995,14 +2198,26 @@ export default function App() {
                   <div><div style={lbl}>금액</div><input value={editingExpense.amount||""} onChange={e=>setEditingExpense(p=>({...p,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingExpense.date||""} onChange={e=>setEditingExpense(p=>({...p,date:e.target.value}))} style={inp}/></div>
                   <div>
-                    <div style={lbl}>사업자번호</div>
-                    <input value={editingExpense.bizNumber||""} onChange={e=>setEditingExpense(p=>({...p,bizNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentBizNumbers} onPick={v=>setEditingExpense(p=>({...p,bizNumber:v}))}/>
+                    <div style={lbl}>거래처 선택 (사업자번호 자동입력)</div>
+                    <select onChange={e=>{
+                      const picked = vendors.find(v=>v.id===e.target.value);
+                      if (picked) setEditingExpense(p=>({...p, bizNumber:picked.bizNumber}));
+                    }} style={sel} defaultValue="">
+                      <option value="">거래처 선택...</option>
+                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                    </select>
+                    <input value={editingExpense.bizNumber||""} onChange={e=>setEditingExpense(p=>({...p,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div>
-                    <div style={lbl}>사용카드번호</div>
-                    <input value={editingExpense.cardNumber||""} onChange={e=>setEditingExpense(p=>({...p,cardNumber:e.target.value}))} style={inp}/>
-                    <RecentChips values={recentCardNumbers} onPick={v=>setEditingExpense(p=>({...p,cardNumber:v}))}/>
+                    <div style={lbl}>카드 선택 (카드번호 자동입력)</div>
+                    <select onChange={e=>{
+                      const picked = cards.find(c=>c.id===e.target.value);
+                      if (picked) setEditingExpense(p=>({...p, cardNumber:picked.number}));
+                    }} style={sel} defaultValue="">
+                      <option value="">카드 선택...</option>
+                      {cards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
+                    </select>
+                    <input value={editingExpense.cardNumber||""} onChange={e=>setEditingExpense(p=>({...p,cardNumber:e.target.value}))} placeholder="사용카드번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingExpense.memo||""} onChange={e=>setEditingExpense(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -2012,12 +2227,37 @@ export default function App() {
               : (() => {
                 const filteredExpenses = selectedExpenseType ? expenses.filter(e=>e.type===selectedExpenseType) : expenses;
                 if (filteredExpenses.length===0) return <div style={{...cs,textAlign:"center",color:"#6b7280"}}>해당 항목의 경비 내역이 없어요</div>;
-                const grouped = [...filteredExpenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
+
+                if (!selectedExpenseMonth) {
+                  const monthGroups = filteredExpenses.reduce((acc,e)=>{
+                    const month = e.date.slice(0,7);
+                    if (!acc[month]) acc[month] = { items:[], total:0 };
+                    acc[month].items.push(e);
+                    acc[month].total += Number(e.amount||0)*Number(e.qty||1);
+                    return acc;
+                  }, {});
+                  return Object.entries(monthGroups).sort((a,b)=>b[0].localeCompare(a[0])).map(([month,mg])=>(
+                    <div key={month} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedExpenseMonth(month)}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div><div style={{fontWeight:700,fontSize:15}}>{month}</div><div style={{fontSize:12,color:"#9ca3af"}}>{mg.items.length}건</div></div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{fontWeight:700,fontSize:15,color:"#dc2626"}}>{formatNum(mg.total)}원</div><span style={{color:"#9ca3af"}}>▶</span></div>
+                      </div>
+                    </div>
+                  ));
+                }
+
+                const monthExpenses = filteredExpenses.filter(e=>e.date.slice(0,7)===selectedExpenseMonth);
+                const grouped = [...monthExpenses].sort((a,b)=>b.date.localeCompare(a.date)).reduce((acc,e)=>{
                   if (!acc[e.date]) acc[e.date] = [];
                   acc[e.date].push(e);
                   return acc;
                 }, {});
-                return Object.entries(grouped).map(([date, items]) => {
+                return (<>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                  <button onClick={()=>{setSelectedExpenseMonth(null);setExpandedExpenseDate(null);}} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                  <div style={{fontWeight:700,fontSize:15}}>{selectedExpenseMonth}</div>
+                </div>
+                {Object.entries(grouped).map(([date, items]) => {
                   const dayTotal = items.reduce((s,e)=>s+Number(e.amount||0)*Number(e.qty||1),0);
                   const isExpanded = expandedExpenseDate === date;
                   return (
@@ -2051,7 +2291,8 @@ export default function App() {
                       )}
                     </div>
                   );
-                });
+                })}
+                </>);
               })()
             }
           </div>
@@ -2372,6 +2613,84 @@ export default function App() {
                 </div>
               ))
             }
+          </div>
+        )}
+
+        {/* 19번: 카드 목록 관리 */}
+        {showCardManager && (
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"1px solid #6d28d9"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontSize:16,fontWeight:700}}>카드 목록 관리</div>
+                <button onClick={()=>{setShowCardManager(false);setEditingCard(null);}} style={{...btn2,fontSize:12}}>닫기</button>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+                <input value={newCard.name} onChange={e=>setNewCard(p=>({...p,name:e.target.value}))} placeholder="카드 이름 (예: SSG삼성카드)" style={{...inp,flex:"1 1 140px"}}/>
+                <input value={newCard.number} onChange={e=>setNewCard(p=>({...p,number:e.target.value}))} placeholder="카드번호" style={{...inp,flex:"1 1 140px"}}/>
+                <button onClick={addCard} style={btn1}>추가</button>
+              </div>
+              {cards.length===0 ? <div style={{textAlign:"center",color:"#9ca3af",padding:20}}>등록된 카드가 없어요</div> : (
+                cards.map(c => (
+                  <div key={c.id} style={{marginBottom:8}}>
+                    {editingCard?.id===c.id ? (
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        <input value={editingCard.name} onChange={e=>setEditingCard(p=>({...p,name:e.target.value}))} style={{...inp,flex:"1 1 100px",fontSize:13}}/>
+                        <input value={editingCard.number} onChange={e=>setEditingCard(p=>({...p,number:e.target.value}))} style={{...inp,flex:"1 1 100px",fontSize:13}}/>
+                        <button onClick={saveEditedCard} style={{...btn1,fontSize:12}}>저장</button>
+                        <button onClick={()=>setEditingCard(null)} style={{...btn2,fontSize:12}}>취소</button>
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:"#f9fafb",borderRadius:8}}>
+                        <div><b>{c.name}</b> <span style={{color:"#9ca3af",fontSize:12}}>{c.number}</span></div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>setEditingCard({...c})} style={{...btn2,fontSize:11,padding:"4px 8px"}}>수정</button>
+                          <button onClick={()=>deleteCard(c.id)} style={{...btnDanger,fontSize:11,padding:"4px 8px"}}>삭제</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 20번: 거래처 목록 관리 */}
+        {showVendorManager && (
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",border:"1px solid #6d28d9"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontSize:16,fontWeight:700}}>거래처 목록 관리</div>
+                <button onClick={()=>{setShowVendorManager(false);setEditingVendor(null);}} style={{...btn2,fontSize:12}}>닫기</button>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+                <input value={newVendor.name} onChange={e=>setNewVendor(p=>({...p,name:e.target.value}))} placeholder="거래처명" style={{...inp,flex:"1 1 140px"}}/>
+                <input value={newVendor.bizNumber} onChange={e=>setNewVendor(p=>({...p,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,flex:"1 1 140px"}}/>
+                <button onClick={addVendor} style={btn1}>추가</button>
+              </div>
+              {vendors.length===0 ? <div style={{textAlign:"center",color:"#9ca3af",padding:20}}>등록된 거래처가 없어요</div> : (
+                vendors.map(v => (
+                  <div key={v.id} style={{marginBottom:8}}>
+                    {editingVendor?.id===v.id ? (
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        <input value={editingVendor.name} onChange={e=>setEditingVendor(p=>({...p,name:e.target.value}))} style={{...inp,flex:"1 1 100px",fontSize:13}}/>
+                        <input value={editingVendor.bizNumber} onChange={e=>setEditingVendor(p=>({...p,bizNumber:e.target.value}))} style={{...inp,flex:"1 1 100px",fontSize:13}}/>
+                        <button onClick={saveEditedVendor} style={{...btn1,fontSize:12}}>저장</button>
+                        <button onClick={()=>setEditingVendor(null)} style={{...btn2,fontSize:12}}>취소</button>
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:"#f9fafb",borderRadius:8}}>
+                        <div><b>{v.name}</b> <span style={{color:"#9ca3af",fontSize:12}}>{v.bizNumber}</span></div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>setEditingVendor({...v})} style={{...btn2,fontSize:11,padding:"4px 8px"}}>수정</button>
+                          <button onClick={()=>deleteVendor(v.id)} style={{...btnDanger,fontSize:11,padding:"4px 8px"}}>삭제</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
 

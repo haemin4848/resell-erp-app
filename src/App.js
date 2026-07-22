@@ -1330,7 +1330,7 @@ export default function App() {
                       {PAYMENT_TYPES.map(pt=><option key={pt} value={pt}>{pt}</option>)}
                     </select>
                   </div>
-                  {editingPurchase.payType==="카드" && <div>
+                  {editingPurchase.payType==="카드" && <div style={{gridColumn:"1 / -1"}}>
                     <div style={lbl}>카드 선택 <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
                     <select value={editingPurchase.cardType||""} onChange={e=>{
                       const picked = cards.find(c=>c.name===e.target.value);
@@ -1343,8 +1343,8 @@ export default function App() {
                   {editingPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={editingPurchase.payBrand||""} onChange={e=>setEditingPurchase(p=>({...p,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(pb=><option key={pb} value={pb}>{pb}</option>)}</select></div>}
                   {editingPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={editingPurchase.bankType||""} onChange={e=>setEditingPurchase(p=>({...p,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
                   {editingPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchase.payOther||""} onChange={e=>setEditingPurchase(p=>({...p,payOther:e.target.value}))} style={inp}/></div>}
-                  <div>
-                    <div style={lbl}>거래처 선택 (사업자번호 자동입력)</div>
+                  <div style={{gridColumn:"1 / -1"}}>
+                    <div style={lbl}>거래처 선택 (사업자번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowVendorManager(true)}>거래처 관리</span></div>
                     <select value={vendors.find(v=>v.bizNumber===editingPurchase.bizNumber)?.id || ""} onChange={e=>{
                       const picked = vendors.find(v=>v.id===e.target.value);
                       setEditingPurchase(p=>({...p, bizNumber: picked ? picked.bizNumber : ""}));
@@ -2194,8 +2194,8 @@ export default function App() {
                   <div><div style={lbl}>수량</div><input value={editingExpense.qty||""} onChange={e=>setEditingExpense(p=>({...p,qty:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>금액</div><input value={editingExpense.amount||""} onChange={e=>setEditingExpense(p=>({...p,amount:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>날짜</div><input type="date" value={editingExpense.date||""} onChange={e=>setEditingExpense(p=>({...p,date:e.target.value}))} style={inp}/></div>
-                  <div>
-                    <div style={lbl}>거래처 선택 (사업자번호 자동입력)</div>
+                  <div style={{gridColumn:"1 / -1"}}>
+                    <div style={lbl}>거래처 선택 (사업자번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowVendorManager(true)}>거래처 관리</span></div>
                     <select value={vendors.find(v=>v.bizNumber===editingExpense.bizNumber)?.id || ""} onChange={e=>{
                       const picked = vendors.find(v=>v.id===e.target.value);
                       setEditingExpense(p=>({...p, bizNumber: picked ? picked.bizNumber : ""}));
@@ -2204,8 +2204,8 @@ export default function App() {
                       {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
                   </div>
-                  <div>
-                    <div style={lbl}>카드 선택 (카드번호 자동입력)</div>
+                  <div style={{gridColumn:"1 / -1"}}>
+                    <div style={lbl}>카드 선택 (카드번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
                     <select value={cards.find(c=>c.number===editingExpense.cardNumber)?.id || ""} onChange={e=>{
                       const picked = cards.find(c=>c.id===e.target.value);
                       setEditingExpense(p=>({...p, cardNumber: picked ? picked.number : ""}));

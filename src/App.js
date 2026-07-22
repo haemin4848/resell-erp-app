@@ -1290,11 +1290,6 @@ export default function App() {
                       <option value="">거래처 선택...</option>
                       {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
-                    <input value={newPurchase.bizNumber} onChange={e=>setNewPurchase(prev=>({...prev,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
-                  </div>
-                  <div>
-                    <div style={lbl}>사용카드번호</div>
-                    <input value={newPurchase.cardNumber} onChange={e=>setNewPurchase(prev=>({...prev,cardNumber:e.target.value}))} placeholder="위에서 카드 선택 시 자동입력" style={inp}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newPurchase.memo} onChange={e=>setNewPurchase(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -1350,18 +1345,13 @@ export default function App() {
                   {editingPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchase.payOther||""} onChange={e=>setEditingPurchase(p=>({...p,payOther:e.target.value}))} style={inp}/></div>}
                   <div>
                     <div style={lbl}>거래처 선택 (사업자번호 자동입력)</div>
-                    <select onChange={e=>{
+                    <select value={vendors.find(v=>v.bizNumber===editingPurchase.bizNumber)?.id || ""} onChange={e=>{
                       const picked = vendors.find(v=>v.id===e.target.value);
-                      if (picked) setEditingPurchase(p=>({...p, bizNumber:picked.bizNumber}));
-                    }} style={sel} defaultValue="">
+                      setEditingPurchase(p=>({...p, bizNumber: picked ? picked.bizNumber : ""}));
+                    }} style={sel}>
                       <option value="">거래처 선택...</option>
                       {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
-                    <input value={editingPurchase.bizNumber||""} onChange={e=>setEditingPurchase(p=>({...p,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
-                  </div>
-                  <div>
-                    <div style={lbl}>사용카드번호</div>
-                    <input value={editingPurchase.cardNumber||""} onChange={e=>setEditingPurchase(p=>({...p,cardNumber:e.target.value}))} placeholder="위에서 카드 선택 시 자동입력" style={inp}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingPurchase.memo||""} onChange={e=>setEditingPurchase(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -2089,6 +2079,15 @@ export default function App() {
                           <span style={{fontSize:12,color:"#9ca3af"}}>{isExpanded?"▲":"▼"}</span>
                         </div>
                       </div>
+                      {/* 23번: 펼치지 않아도 어떤 상품인지 바로 보이도록 이미지 미리보기 */}
+                      <div style={{display:"flex",gap:6,marginTop:8,cursor:"pointer"}} onClick={()=>setExpandedReturnDate(isExpanded ? null : date)}>
+                        {Object.values(productGroups).map(group => {
+                          const prod = products.find(p=>p.id===group.productId);
+                          return prod?.image
+                            ? <img key={group.productId||group.productName} src={prod.image} alt="" title={group.productName} style={{width:36,height:36,borderRadius:6,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/>
+                            : <div key={group.productId||group.productName} title={group.productName} style={{width:36,height:36,borderRadius:6,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>👟</div>;
+                        })}
+                      </div>
                       {isExpanded && (
                         <div style={{marginTop:10,borderTop:"1px solid #f3f4f6",paddingTop:10}}>
                           {Object.entries(productGroups).map(([key, group]) => {
@@ -2167,7 +2166,6 @@ export default function App() {
                       <option value="">거래처 선택...</option>
                       {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
-                    <input value={newExpense.bizNumber} onChange={e=>setNewExpense(prev=>({...prev,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div>
                     <div style={lbl}>카드 선택 (카드번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
@@ -2178,7 +2176,6 @@ export default function App() {
                       <option value="">카드 선택...</option>
                       {cards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
                     </select>
-                    <input value={newExpense.cardNumber} onChange={e=>setNewExpense(prev=>({...prev,cardNumber:e.target.value}))} placeholder="사용카드번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newExpense.memo} onChange={e=>setNewExpense(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -2199,25 +2196,23 @@ export default function App() {
                   <div><div style={lbl}>날짜</div><input type="date" value={editingExpense.date||""} onChange={e=>setEditingExpense(p=>({...p,date:e.target.value}))} style={inp}/></div>
                   <div>
                     <div style={lbl}>거래처 선택 (사업자번호 자동입력)</div>
-                    <select onChange={e=>{
+                    <select value={vendors.find(v=>v.bizNumber===editingExpense.bizNumber)?.id || ""} onChange={e=>{
                       const picked = vendors.find(v=>v.id===e.target.value);
-                      if (picked) setEditingExpense(p=>({...p, bizNumber:picked.bizNumber}));
-                    }} style={sel} defaultValue="">
+                      setEditingExpense(p=>({...p, bizNumber: picked ? picked.bizNumber : ""}));
+                    }} style={sel}>
                       <option value="">거래처 선택...</option>
                       {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
-                    <input value={editingExpense.bizNumber||""} onChange={e=>setEditingExpense(p=>({...p,bizNumber:e.target.value}))} placeholder="사업자번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div>
                     <div style={lbl}>카드 선택 (카드번호 자동입력)</div>
-                    <select onChange={e=>{
+                    <select value={cards.find(c=>c.number===editingExpense.cardNumber)?.id || ""} onChange={e=>{
                       const picked = cards.find(c=>c.id===e.target.value);
-                      if (picked) setEditingExpense(p=>({...p, cardNumber:picked.number}));
-                    }} style={sel} defaultValue="">
+                      setEditingExpense(p=>({...p, cardNumber: picked ? picked.number : ""}));
+                    }} style={sel}>
                       <option value="">카드 선택...</option>
                       {cards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
                     </select>
-                    <input value={editingExpense.cardNumber||""} onChange={e=>setEditingExpense(p=>({...p,cardNumber:e.target.value}))} placeholder="사용카드번호" style={{...inp,marginTop:6}}/>
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingExpense.memo||""} onChange={e=>setEditingExpense(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>

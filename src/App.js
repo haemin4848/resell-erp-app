@@ -241,7 +241,7 @@ function drawReceiptImg(ctx, img, rot, x, y, w, h) {
 }
 
 const emptyProduct = { code:"", brand:"", name:"", releasePrice:"", image:"", sizes:{}, category:"신발" };
-const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", bizNumber:"", cardNumber:"", memo:"" };
+const emptyPurchase = { productId:"", manualName:"", code:"", size:"", sizes:{}, price:"", qty:"1", date:new Date().toISOString().slice(0,10), place:"", payType:"카드", cardType:"삼성", payBrand:"카카오페이", bankType:"국민", payOther:"", bizNumber:"", cardNumber:"", memo:"", expectedDate:"", receivingStatus:"입고예정", receivedDate:"" };
 const emptySale = { productId:"", manualName:"", code:"", size:"", sizes:{}, platform:"포이즌", platformOther:"", price:"", qty:"1", fee:"", shipping:"", date:new Date().toISOString().slice(0,10), memo:"" };
 const emptyExpense = { type:"주유", itemName:"", qty:"1", purchasePlace:"", amount:"", date:new Date().toISOString().slice(0,10), bizNumber:"", cardNumber:"", memo:"" };
 const emptySettlement = { platform:"포이즌", amount:"", bank:"국민", bankOther:"", fee:"", date:new Date().toISOString().slice(0,10), memo:"" };
@@ -367,6 +367,11 @@ export default function App() {
   const [selectedFundingKey, setSelectedFundingKey] = useState(null);
   const [selectedFundingMonth, setSelectedFundingMonth] = useState(null);
   const [selectedPurchaseMonth, setSelectedPurchaseMonth] = useState(null);
+  const [selectedReceivingMonth, setSelectedReceivingMonth] = useState(null);
+  const [receivingQtyDraft, setReceivingQtyDraft] = useState({});
+  const [receivingDateDraft, setReceivingDateDraft] = useState({});
+  const [selectedReceivingIds, setSelectedReceivingIds] = useState([]);
+  const [bulkReceivingDate, setBulkReceivingDate] = useState(new Date().toISOString().slice(0,10));
   const [selectedSaleMonth, setSelectedSaleMonth] = useState(null);
   const [selectedInspectionMonth, setSelectedInspectionMonth] = useState(null);
   const [selectedExpenseMonth, setSelectedExpenseMonth] = useState(null);
@@ -651,7 +656,9 @@ export default function App() {
 
   // 재고 실시간 계산: 매입수량 - 매출수량
   const calcStock = (productId, size) => {
-    const inQty = purchases.filter(p => p.productId===productId && p.size===size).reduce((s,p) => s+Number(p.qty||1), 0);
+    // 30번: "입고예정" 상태인 매입은 아직 실물이 없으므로 재고에서 제외.
+    // 기존(입고 기능 도입 전)에 등록된 매입 건은 receivingStatus 값이 아예 없는데, 이런 경우는 이미 입고된 것으로 간주해서 그대로 반영함
+    const inQty = purchases.filter(p => p.productId===productId && p.size===size && p.receivingStatus !== "입고예정").reduce((s,p) => s+Number(p.qty||1), 0);
     // 검수불통(거래실패) 처리된 매출은 재고 계산에서 제외 -> 자동으로 재고가 복원됨
     const outQty = sales.filter(s => s.productId===productId && s.size===size && !s.inspectionFailed).reduce((s,x) => s+Number(x.qty||1), 0);
     const returnQty = returns.filter(r => r.productId===productId && r.size===size).reduce((s,r) => s+Number(r.qty||1), 0);
@@ -702,7 +709,7 @@ export default function App() {
   const totalStockValue = products.reduce((sum,p) => sum+Object.keys(p.sizes||{}).reduce((s2,size) => {
     const stock = Math.max(calcStock(p.id,size),0);
     if (stock<=0) return s2;
-    const relevantPurchases = purchases.filter(x=>x.productId===p.id && x.size===size);
+    const relevantPurchases = purchases.filter(x=>x.productId===p.id && x.size===size && x.receivingStatus !== "입고예정");
     const avgPrice = relevantPurchases.length>0 ? relevantPurchases.reduce((s3,x)=>s3+Number(x.price||0),0)/relevantPurchases.length : 0;
     return s2 + stock*avgPrice;
   }, 0), 0);
@@ -780,6 +787,34 @@ export default function App() {
       if (remaining.length === 0) return null; // 다 지웠으면 창 닫기
       return { ...prev, rows: remaining };
     });
+  };
+
+
+  // 30번: 입고 처리 - 수량 일부만 입력하면 부분 입고(남은 수량은 계속 입고예정으로 남음)
+  const receiveOneItem = (purchaseId) => {
+    const p = purchases.find(x => x.id === purchaseId);
+    if (!p) return;
+    const totalQty = Number(p.qty) || 0;
+    const recvQty = Number(receivingQtyDraft[purchaseId] ?? totalQty) || 0;
+    const recvDate = receivingDateDraft[purchaseId] || new Date().toISOString().slice(0,10);
+    if (recvQty <= 0) { alert("입고 수량을 입력해주세요."); return; }
+    if (recvQty >= totalQty) {
+      setPurchases(prev => prev.map(x => x.id===purchaseId ? { ...x, receivingStatus:"입고완료", receivedDate:recvDate } : x));
+    } else {
+      setPurchases(prev => [
+        ...prev.map(x => x.id===purchaseId ? { ...x, qty: totalQty - recvQty } : x),
+        { ...p, id: generateId(), qty: recvQty, receivingStatus:"입고완료", receivedDate:recvDate },
+      ]);
+    }
+    setReceivingQtyDraft(prev => { const n={...prev}; delete n[purchaseId]; return n; });
+    setReceivingDateDraft(prev => { const n={...prev}; delete n[purchaseId]; return n; });
+  };
+
+  // 여러 건을 체크박스로 선택해서 한번에 전량 입고 처리 (부분입고는 개별 처리에서만 지원)
+  const receiveMultiple = () => {
+    if (selectedReceivingIds.length === 0) { alert("입고 처리할 항목을 선택해주세요."); return; }
+    setPurchases(prev => prev.map(p => selectedReceivingIds.includes(p.id) ? { ...p, receivingStatus:"입고완료", receivedDate:bulkReceivingDate } : p));
+    setSelectedReceivingIds([]);
   };
 
 
@@ -944,6 +979,7 @@ export default function App() {
     {id:"scan",label:"📦 바코드"},
     {id:"products",label:"👟 상품"},
     {id:"purchases",label:"🛒 매입"},
+    {id:"receiving",label:"📦 입고"},
     {id:"sales",label:"💰 매출"},
     {id:"inspection",label:"🔍 검수"},
     {id:"stock",label:"📋 재고현황"},
@@ -1325,7 +1361,7 @@ export default function App() {
                   {newPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={newPurchase.payBrand} onChange={e=>setNewPurchase(prev=>({...prev,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
                   {newPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={newPurchase.bankType} onChange={e=>setNewPurchase(prev=>({...prev,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
                   {newPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={newPurchase.payOther} onChange={e=>setNewPurchase(prev=>({...prev,payOther:e.target.value}))} placeholder="직접 입력" style={inp}/></div>}
-                  {[{key:"price",label:"매입가 (원)"},{key:"date",label:"매입일",type:"date"},{key:"place",label:"매입장소"}].map(f=>(
+                  {[{key:"price",label:"매입가 (원)"},{key:"date",label:"매입일",type:"date"},{key:"place",label:"매입장소"},{key:"expectedDate",label:"예상 입고일 (예약매입인 경우만)",type:"date"}].map(f=>(
                     <div key={f.key}><div style={lbl}>{f.label}</div><input value={newPurchase[f.key]} onChange={e=>setNewPurchase(prev=>({...prev,[f.key]:e.target.value}))} type={f.type||"text"} style={inp}/></div>
                   ))}
                   <div>
@@ -1497,6 +1533,96 @@ export default function App() {
                 </>);
               })()
             }
+          </div>
+        )}
+
+        {/* 30번: 입고 */}
+        {tab==="receiving" && (
+          <div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>입고</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:14}}>매입 후 실제로 물건을 받으면 입고 처리해주세요. 입고 처리 전까지는 재고현황에 반영되지 않아요.</div>
+            {(() => {
+              const pending = purchases.filter(p => p.receivingStatus === "입고예정");
+              if (pending.length === 0) return <div style={{...cs,textAlign:"center",color:"#9ca3af"}}>입고 대기중인 매입 건이 없어요</div>;
+
+              if (!selectedReceivingMonth) {
+                const monthGroups = pending.reduce((acc,p)=>{
+                  const month = p.date.slice(0,7);
+                  if (!acc[month]) acc[month] = { items:[], productIds:new Set() };
+                  acc[month].items.push(p);
+                  acc[month].productIds.add(p.productId);
+                  return acc;
+                }, {});
+                return Object.entries(monthGroups).sort((a,b)=>a[0].localeCompare(b[0])).map(([month,mg])=>(
+                  <div key={month} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedReceivingMonth(month)}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontWeight:700,fontSize:15}}>{month}</div><div style={{fontSize:12,color:"#9ca3af"}}>입고예정 {mg.items.length}건</div></div>
+                      <span style={{color:"#9ca3af"}}>▶</span>
+                    </div>
+                    <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                      {[...mg.productIds].map(pid=>{
+                        const prod = products.find(x=>x.id===pid);
+                        return prod?.image
+                          ? <img key={pid} src={prod.image} alt="" title={prod.name} style={{width:36,height:36,borderRadius:6,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/>
+                          : <div key={pid} title={prod?.name} style={{width:36,height:36,borderRadius:6,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>👟</div>;
+                      })}
+                    </div>
+                  </div>
+                ));
+              }
+
+              const monthItems = pending.filter(p=>p.date.slice(0,7)===selectedReceivingMonth);
+              const dateGroups = monthItems.sort((a,b)=>a.date.localeCompare(b.date)).reduce((acc,p)=>{
+                if (!acc[p.date]) acc[p.date] = [];
+                acc[p.date].push(p);
+                return acc;
+              }, {});
+
+              return (
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <button onClick={()=>{setSelectedReceivingMonth(null);setSelectedReceivingIds([]);}} style={{...btn2,fontSize:12,padding:"6px 12px"}}>← 뒤로</button>
+                    <div style={{fontWeight:700,fontSize:15}}>{selectedReceivingMonth}</div>
+                  </div>
+
+                  {selectedReceivingIds.length > 0 && (
+                    <div style={{...cs,border:"1px solid #6d28d9",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:"#6d28d9"}}>{selectedReceivingIds.length}건 선택됨</span>
+                      <input type="date" value={bulkReceivingDate} onChange={e=>setBulkReceivingDate(e.target.value)} style={{...inp,width:160}}/>
+                      <button onClick={receiveMultiple} style={btn1}>선택한 항목 일괄 입고완료 처리</button>
+                      <button onClick={()=>setSelectedReceivingIds([])} style={btn2}>선택 해제</button>
+                    </div>
+                  )}
+
+                  {Object.entries(dateGroups).map(([date, items]) => (
+                    <div key={date} style={{marginBottom:16}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#6b7280",marginBottom:8,padding:"6px 12px",background:"#f3f4f6",borderRadius:8}}>매입일 {date}</div>
+                      {items.map(p => {
+                        const prod = products.find(x=>x.id===p.productId);
+                        const checked = selectedReceivingIds.includes(p.id);
+                        return (
+                          <div key={p.id} style={{...cs,marginBottom:8}}>
+                            <div style={{display:"flex",alignItems:"center",gap:10}}>
+                              <input type="checkbox" checked={checked} onChange={()=>setSelectedReceivingIds(prev=>checked?prev.filter(id=>id!==p.id):[...prev,p.id])} style={{width:16,height:16,flexShrink:0}}/>
+                              {prod?.image ? <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6",flexShrink:0}}/> : <div style={{width:44,height:44,borderRadius:8,background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>👟</div>}
+                              <div style={{flex:1}}>
+                                <div style={{fontWeight:700,fontSize:15}}>{p.productName} <span style={{color:"#6d28d9"}}>{p.size}</span></div>
+                                <div style={{fontSize:12,color:"#9ca3af"}}>품번 {p.productCode||"-"} · 매입수량 {p.qty}개{p.expectedDate?` · 예상 입고일 ${p.expectedDate}`:""}</div>
+                              </div>
+                            </div>
+                            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
+                              <div><div style={lbl}>입고 수량</div><input type="number" value={receivingQtyDraft[p.id] ?? p.qty} onChange={e=>setReceivingQtyDraft(prev=>({...prev,[p.id]:e.target.value}))} style={{...inp,width:90}}/></div>
+                              <div><div style={lbl}>입고일</div><input type="date" value={receivingDateDraft[p.id] ?? new Date().toISOString().slice(0,10)} onChange={e=>setReceivingDateDraft(prev=>({...prev,[p.id]:e.target.value}))} style={{...inp,width:160}}/></div>
+                              <button onClick={()=>receiveOneItem(p.id)} style={{...btn1,alignSelf:"flex-end"}}>입고 처리</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1926,6 +2052,19 @@ export default function App() {
                                 <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
                                   <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개</span>
                                   <span style={{fontWeight:600,color:"#d97706"}}>{formatNum(x.price*x.qty)}원</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {pPurchases.length>0 && (
+                            <div style={{marginBottom:10}}>
+                              <div style={{fontSize:13,fontWeight:700,color:"#6d28d9",marginBottom:6}}>입고 내역</div>
+                              {pPurchases.map(x=>(
+                                <div key={x.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
+                                  <span style={{color:"#6b7280"}}>{x.date} · {x.size}mm · {x.qty}개</span>
+                                  {x.receivingStatus==="입고예정"
+                                    ? <span style={{fontWeight:600,color:"#b45309"}}>입고예정{x.expectedDate?` (예상 ${x.expectedDate})`:""}</span>
+                                    : <span style={{fontWeight:600,color:"#059669"}}>입고완료{x.receivedDate?` (${x.receivedDate})`:""}</span>}
                                 </div>
                               ))}
                             </div>

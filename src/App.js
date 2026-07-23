@@ -322,6 +322,9 @@ export default function App() {
   const [inspections, setInspections] = useDB("inspections");
   const [cards, setCards] = useDB("cards");
   const [vendors, setVendors] = useDB("vendors");
+  // 28번: 카드/거래처 선택 목록은 이름 기준 ㄱㄴㄷ순 정렬해서 사용
+  const sortedCards = [...cards].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+  const sortedVendors = [...vendors].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
   const loaded = prodLoaded && salesLoaded && purchLoaded;
   const [showAddReturn, setShowAddReturn] = useState(false);
   const [returnCodeSearch, setReturnCodeSearch] = useState("");
@@ -345,7 +348,7 @@ export default function App() {
   const [newVendor, setNewVendor] = useState({ name:"", bizNumber:"" });
   const [editingVendor, setEditingVendor] = useState(null);
   const [editingSale, setEditingSale] = useState(null);
-  const [editingPurchase, setEditingPurchase] = useState(null);
+  const [editingPurchaseGroup, setEditingPurchaseGroup] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
   const [editingSettlement, setEditingSettlement] = useState(null);
   const [showAddSale, setShowAddSale] = useState(false);
@@ -738,6 +741,38 @@ export default function App() {
     setSales(prev => [...prev, { ...newSale, id:generateId(), price:Number(newSale.price), qty:Number(newSale.qty)||1, productName:prod?.name||newSale.manualName, productCode:prod?.code||newSale.code }]);
     setNewSale({...emptySale}); setShowAddSale(false);
   };
+
+  // 27번: 여러 사이즈로 등록된 매입 건을, 등록 화면과 비슷한 형태로 한번에 수정
+  const openPurchaseGroupEdit = (items) => {
+    const first = items[0];
+    setEditingPurchaseGroup({
+      productId: first.productId, productName: first.productName, productCode: first.productCode,
+      date: first.date, place: first.place||"",
+      payType: first.payType, cardType: first.cardType||"", payBrand: first.payBrand||"",
+      bankType: first.bankType||"", payOther: first.payOther||"",
+      bizNumber: first.bizNumber||"", cardNumber: first.cardNumber||"", memo: first.memo||"",
+      rows: items.map(p => ({ id: p.id, size: p.size, qty: p.qty, price: p.price })),
+    });
+  };
+
+  const savePurchaseGroupEdit = () => {
+    const g = editingPurchaseGroup;
+    const shared = { productId:g.productId, productName:g.productName, productCode:g.productCode, date:g.date, place:g.place, payType:g.payType, cardType:g.cardType, payBrand:g.payBrand, bankType:g.bankType, payOther:g.payOther, bizNumber:g.bizNumber, cardNumber:g.cardNumber, memo:g.memo };
+    setPurchases(prev => prev.map(p => {
+      const row = g.rows.find(r => r.id === p.id);
+      return row ? { ...p, ...shared, size:row.size, qty:Number(row.qty)||1, price:Number(row.price)||0 } : p;
+    }));
+    setEditingPurchaseGroup(null);
+  };
+
+  const deletePurchaseGroupRow = (rowId) => {
+    if (editingPurchaseGroup.rows.length <= 1) { alert("최소 한 개의 사이즈는 남아있어야 해요. 전체 삭제는 각 항목을 취소 후 개별적으로 삭제해주세요."); return; }
+    if (!window.confirm("이 사이즈 건을 삭제할까요?")) return;
+    const purchaseToTrash = purchases.find(p => p.id === rowId);
+    if (purchaseToTrash) moveToTrash(purchaseToTrash, "purchase");
+    setEditingPurchaseGroup(prev => ({ ...prev, rows: prev.rows.filter(r => r.id !== rowId) }));
+  };
+
 
   const addPurchase = () => {
     if (!newPurchase.productId && !newPurchase.manualName) { alert("상품 선택 또는 입력!"); return; }
@@ -1272,8 +1307,11 @@ export default function App() {
                       setNewPurchase(prev=>({...prev, cardType:e.target.value, cardNumber: picked?picked.number:prev.cardNumber}));
                     }} style={sel}>
                       <option value="">선택 안 함</option>
-                      {cards.map(c=><option key={c.id} value={c.name}>{c.name} ({c.number})</option>)}
+                      {sortedCards.map(c=><option key={c.id} value={c.name}>{c.name} ({c.number})</option>)}
                     </select>
+                    {!cards.some(c=>c.name===newPurchase.cardType) && (
+                      <input value={newPurchase.cardNumber} onChange={e=>setNewPurchase(prev=>({...prev,cardNumber:e.target.value}))} placeholder="목록에 없으면 카드번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>}
                   {newPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={newPurchase.payBrand} onChange={e=>setNewPurchase(prev=>({...prev,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
                   {newPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={newPurchase.bankType} onChange={e=>setNewPurchase(prev=>({...prev,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
@@ -1288,8 +1326,11 @@ export default function App() {
                       if (picked) setNewPurchase(prev=>({...prev, bizNumber:picked.bizNumber}));
                     }} style={sel} defaultValue="">
                       <option value="">거래처 선택...</option>
-                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                      {sortedVendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
+                    {!vendors.some(v=>v.bizNumber && v.bizNumber===newPurchase.bizNumber) && (
+                      <input value={newPurchase.bizNumber} onChange={e=>setNewPurchase(prev=>({...prev,bizNumber:e.target.value}))} placeholder="목록에 없으면 사업자번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newPurchase.memo} onChange={e=>setNewPurchase(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -1311,49 +1352,73 @@ export default function App() {
               </div>
             )}
 
-            {/* 8번: 수정 모달 - 1번: 매입 등록과 동일한 양식으로 통일 */}
-            {editingPurchase && (
-              <EditModal title="매입 수정"
-                onSave={()=>{setPurchases(prev=>prev.map(p=>p.id===editingPurchase.id?{...editingPurchase,price:Number(editingPurchase.price)}:p));setEditingPurchase(null);}}
-                onDelete={()=>{if(window.confirm("삭제할까요?")){moveToTrash(editingPurchase,"purchase");setEditingPurchase(null);}}}
-                onClose={()=>setEditingPurchase(null)}>
+            {/* 27번: 여러 사이즈로 등록된 매입 건을 한 화면에서 사이즈별로 수정 */}
+            {editingPurchaseGroup && (
+              <EditModal title={`매입 수정 - ${editingPurchaseGroup.productName}`}
+                onSave={savePurchaseGroupEdit}
+                onClose={()=>setEditingPurchaseGroup(null)}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  <div><div style={lbl}>상품명</div><input value={editingPurchase.productName||""} onChange={e=>setEditingPurchase(p=>({...p,productName:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>품번</div><input value={editingPurchase.productCode||""} onChange={e=>setEditingPurchase(p=>({...p,productCode:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>사이즈</div><input value={editingPurchase.size||""} onChange={e=>setEditingPurchase(p=>({...p,size:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>매입가</div><input value={editingPurchase.price||""} onChange={e=>setEditingPurchase(p=>({...p,price:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>수량</div><input value={editingPurchase.qty||""} onChange={e=>setEditingPurchase(p=>({...p,qty:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>날짜</div><input type="date" value={editingPurchase.date||""} onChange={e=>setEditingPurchase(p=>({...p,date:e.target.value}))} style={inp}/></div>
-                  <div><div style={lbl}>매입장소</div><input value={editingPurchase.place||""} onChange={e=>setEditingPurchase(p=>({...p,place:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>상품명</div><input value={editingPurchaseGroup.productName||""} disabled style={{...inp,background:"#f3f4f6"}}/></div>
+                  <div><div style={lbl}>품번</div><input value={editingPurchaseGroup.productCode||""} disabled style={{...inp,background:"#f3f4f6"}}/></div>
+                  <div><div style={lbl}>매입일</div><input type="date" value={editingPurchaseGroup.date} onChange={e=>setEditingPurchaseGroup(g=>({...g,date:e.target.value}))} style={inp}/></div>
+                  <div><div style={lbl}>매입장소</div><input value={editingPurchaseGroup.place} onChange={e=>setEditingPurchaseGroup(g=>({...g,place:e.target.value}))} style={inp}/></div>
                   <div><div style={lbl}>결제수단</div>
-                    <select value={editingPurchase.payType||"카드"} onChange={e=>setEditingPurchase(p=>({...p,payType:e.target.value}))} style={sel}>
+                    <select value={editingPurchaseGroup.payType||"카드"} onChange={e=>setEditingPurchaseGroup(g=>({...g,payType:e.target.value}))} style={sel}>
                       {PAYMENT_TYPES.map(pt=><option key={pt} value={pt}>{pt}</option>)}
                     </select>
                   </div>
-                  {editingPurchase.payType==="카드" && <div style={{gridColumn:"1 / -1"}}>
+                  {editingPurchaseGroup.payType==="카드" && <div>
                     <div style={lbl}>카드 선택 <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
-                    <select value={editingPurchase.cardType||""} onChange={e=>{
+                    <select value={editingPurchaseGroup.cardType||""} onChange={e=>{
                       const picked = cards.find(c=>c.name===e.target.value);
-                      setEditingPurchase(p=>({...p, cardType:e.target.value, cardNumber: picked?picked.number:p.cardNumber}));
+                      setEditingPurchaseGroup(g=>({...g, cardType:e.target.value, cardNumber: picked?picked.number:g.cardNumber}));
                     }} style={sel}>
                       <option value="">선택 안 함</option>
-                      {cards.map(c=><option key={c.id} value={c.name}>{c.name} ({c.number})</option>)}
+                      {sortedCards.map(c=><option key={c.id} value={c.name}>{c.name} ({c.number})</option>)}
                     </select>
+                    {!cards.some(c=>c.name===editingPurchaseGroup.cardType) && (
+                      <input value={editingPurchaseGroup.cardNumber||""} onChange={e=>setEditingPurchaseGroup(g=>({...g,cardNumber:e.target.value}))} placeholder="목록에 없으면 카드번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>}
-                  {editingPurchase.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={editingPurchase.payBrand||""} onChange={e=>setEditingPurchase(p=>({...p,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(pb=><option key={pb} value={pb}>{pb}</option>)}</select></div>}
-                  {editingPurchase.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={editingPurchase.bankType||""} onChange={e=>setEditingPurchase(p=>({...p,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
-                  {editingPurchase.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchase.payOther||""} onChange={e=>setEditingPurchase(p=>({...p,payOther:e.target.value}))} style={inp}/></div>}
+                  {editingPurchaseGroup.payType==="페이" && <div><div style={lbl}>페이 종류</div><select value={editingPurchaseGroup.payBrand||""} onChange={e=>setEditingPurchaseGroup(g=>({...g,payBrand:e.target.value}))} style={sel}>{PAY_TYPES.map(pb=><option key={pb} value={pb}>{pb}</option>)}</select></div>}
+                  {editingPurchaseGroup.payType==="계좌이체" && <div><div style={lbl}>은행</div><select value={editingPurchaseGroup.bankType||""} onChange={e=>setEditingPurchaseGroup(g=>({...g,bankType:e.target.value}))} style={sel}>{BANK_TYPES.map(b=><option key={b} value={b}>{b}</option>)}</select></div>}
+                  {editingPurchaseGroup.payType==="기타" && <div><div style={lbl}>결제방법 입력</div><input value={editingPurchaseGroup.payOther||""} onChange={e=>setEditingPurchaseGroup(g=>({...g,payOther:e.target.value}))} style={inp}/></div>}
                   <div style={{gridColumn:"1 / -1"}}>
                     <div style={lbl}>거래처 선택 (사업자번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowVendorManager(true)}>거래처 관리</span></div>
-                    <select value={vendors.find(v=>v.bizNumber===editingPurchase.bizNumber)?.id || ""} onChange={e=>{
+                    <select value={vendors.find(v=>v.bizNumber===editingPurchaseGroup.bizNumber)?.id || ""} onChange={e=>{
                       const picked = vendors.find(v=>v.id===e.target.value);
-                      setEditingPurchase(p=>({...p, bizNumber: picked ? picked.bizNumber : ""}));
+                      setEditingPurchaseGroup(g=>({...g, bizNumber: picked ? picked.bizNumber : ""}));
                     }} style={sel}>
                       <option value="">거래처 선택...</option>
-                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                      {sortedVendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
+                    {!vendors.some(v=>v.bizNumber && v.bizNumber===editingPurchaseGroup.bizNumber) && (
+                      <input value={editingPurchaseGroup.bizNumber||""} onChange={e=>setEditingPurchaseGroup(g=>({...g,bizNumber:e.target.value}))} placeholder="목록에 없으면 사업자번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>
-                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingPurchase.memo||""} onChange={e=>setEditingPurchase(p=>({...p,memo:e.target.value}))} style={inp}/></div>
+                  <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingPurchaseGroup.memo} onChange={e=>setEditingPurchaseGroup(g=>({...g,memo:e.target.value}))} style={inp}/></div>
+                </div>
+
+                <div style={{marginTop:16}}>
+                  <div style={{...lbl,marginBottom:8}}>사이즈별 수량·매입가 (사이즈마다 가격이 다르면 각각 입력)</div>
+                  {editingPurchaseGroup.rows.map((row,idx) => (
+                    <div key={row.id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,padding:"8px",background:"#f9fafb",borderRadius:8}}>
+                      <input value={row.size} onChange={e=>{
+                        const v=e.target.value;
+                        setEditingPurchaseGroup(g=>({...g, rows: g.rows.map((r,i)=>i===idx?{...r,size:v}:r)}));
+                      }} placeholder="사이즈" style={{...inp,width:80,fontSize:13}}/>
+                      <input type="number" value={row.qty} onChange={e=>{
+                        const v=e.target.value;
+                        setEditingPurchaseGroup(g=>({...g, rows: g.rows.map((r,i)=>i===idx?{...r,qty:v}:r)}));
+                      }} placeholder="수량" style={{...inp,width:70,fontSize:13}}/>
+                      <input type="number" value={row.price} onChange={e=>{
+                        const v=e.target.value;
+                        setEditingPurchaseGroup(g=>({...g, rows: g.rows.map((r,i)=>i===idx?{...r,price:v}:r)}));
+                      }} placeholder="매입가" style={{...inp,flex:1,fontSize:13}}/>
+                      <span style={{fontSize:12,color:"#9ca3af"}}>원</span>
+                      <button onClick={()=>deletePurchaseGroupRow(row.id)} style={{...btnDanger,padding:"6px 10px",fontSize:12}}>삭제</button>
+                    </div>
+                  ))}
                 </div>
               </EditModal>
             )}
@@ -1405,7 +1470,7 @@ export default function App() {
                         const {supply,vat} = calcVat(totalAmt/totalQty, totalQty);
                         const sizes = items.map(p=>p.size).filter(Boolean).join(", ");
                         return (
-                          <div key={key} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>setEditingPurchase({...items[0]})}>
+                          <div key={key} style={{...cs,marginBottom:8,cursor:"pointer"}} onClick={()=>openPurchaseGroupEdit(items)}>
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                               <div style={{display:"flex",alignItems:"center",gap:10}}>
                                 {prod?.image && <img src={prod.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"contain",background:"#f3f4f6"}}/>}
@@ -2164,8 +2229,11 @@ export default function App() {
                       if (picked) setNewExpense(prev=>({...prev, bizNumber:picked.bizNumber}));
                     }} style={sel} defaultValue="">
                       <option value="">거래처 선택...</option>
-                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                      {sortedVendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
+                    {!vendors.some(v=>v.bizNumber && v.bizNumber===newExpense.bizNumber) && (
+                      <input value={newExpense.bizNumber} onChange={e=>setNewExpense(prev=>({...prev,bizNumber:e.target.value}))} placeholder="목록에 없으면 사업자번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>
                   <div>
                     <div style={lbl}>카드 선택 (카드번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
@@ -2174,8 +2242,11 @@ export default function App() {
                       if (picked) setNewExpense(prev=>({...prev, cardNumber:picked.number}));
                     }} style={sel} defaultValue="">
                       <option value="">카드 선택...</option>
-                      {cards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
+                      {sortedCards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
                     </select>
+                    {!cards.some(c=>c.number && c.number===newExpense.cardNumber) && (
+                      <input value={newExpense.cardNumber} onChange={e=>setNewExpense(prev=>({...prev,cardNumber:e.target.value}))} placeholder="목록에 없으면 카드번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={newExpense.memo} onChange={e=>setNewExpense(prev=>({...prev,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -2201,8 +2272,11 @@ export default function App() {
                       setEditingExpense(p=>({...p, bizNumber: picked ? picked.bizNumber : ""}));
                     }} style={sel}>
                       <option value="">거래처 선택...</option>
-                      {vendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
+                      {sortedVendors.map(v=><option key={v.id} value={v.id}>{v.name} ({v.bizNumber})</option>)}
                     </select>
+                    {!vendors.some(v=>v.bizNumber && v.bizNumber===editingExpense.bizNumber) && (
+                      <input value={editingExpense.bizNumber||""} onChange={e=>setEditingExpense(p=>({...p,bizNumber:e.target.value}))} placeholder="목록에 없으면 사업자번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>
                   <div style={{gridColumn:"1 / -1"}}>
                     <div style={lbl}>카드 선택 (카드번호 자동입력) <span style={{cursor:"pointer",color:"#6d28d9",textDecoration:"underline",fontWeight:400}} onClick={()=>setShowCardManager(true)}>카드 관리</span></div>
@@ -2211,8 +2285,11 @@ export default function App() {
                       setEditingExpense(p=>({...p, cardNumber: picked ? picked.number : ""}));
                     }} style={sel}>
                       <option value="">카드 선택...</option>
-                      {cards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
+                      {sortedCards.map(c=><option key={c.id} value={c.id}>{c.name} ({c.number})</option>)}
                     </select>
+                    {!cards.some(c=>c.number && c.number===editingExpense.cardNumber) && (
+                      <input value={editingExpense.cardNumber||""} onChange={e=>setEditingExpense(p=>({...p,cardNumber:e.target.value}))} placeholder="목록에 없으면 카드번호 직접 입력" style={{...inp,marginTop:6,fontSize:12}}/>
+                    )}
                   </div>
                   <div style={{gridColumn:"1 / -1"}}><div style={lbl}>메모</div><input value={editingExpense.memo||""} onChange={e=>setEditingExpense(p=>({...p,memo:e.target.value}))} style={inp}/></div>
                 </div>
@@ -2625,7 +2702,7 @@ export default function App() {
                 <button onClick={addCard} style={btn1}>추가</button>
               </div>
               {cards.length===0 ? <div style={{textAlign:"center",color:"#9ca3af",padding:20}}>등록된 카드가 없어요</div> : (
-                cards.map(c => (
+                sortedCards.map(c => (
                   <div key={c.id} style={{marginBottom:8}}>
                     {editingCard?.id===c.id ? (
                       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
@@ -2664,7 +2741,7 @@ export default function App() {
                 <button onClick={addVendor} style={btn1}>추가</button>
               </div>
               {vendors.length===0 ? <div style={{textAlign:"center",color:"#9ca3af",padding:20}}>등록된 거래처가 없어요</div> : (
-                vendors.map(v => (
+                sortedVendors.map(v => (
                   <div key={v.id} style={{marginBottom:8}}>
                     {editingVendor?.id===v.id ? (
                       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>

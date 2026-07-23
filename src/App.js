@@ -1839,7 +1839,7 @@ export default function App() {
               if (useHierarchy && selectedStockBrand && !selectedStockCategory) {
                 const brandItems = withStock.filter(p=>(p.brand||"기타")===selectedStockBrand);
                 const byCategory = brandItems.reduce((acc,p)=>{
-                  const c = p.category || "기타";
+                  const c = p.category || "신발";
                   if (!acc[c]) acc[c] = { items:[], qty:0 };
                   acc[c].items.push(p);
                   acc[c].qty += p.stockList.reduce((s,x)=>s+x.stock,0);
@@ -1866,7 +1866,7 @@ export default function App() {
 
               // 3단계 (또는 검색 중): 상품별 상세 목록
               const detailList = useHierarchy
-                ? withStock.filter(p=>(p.brand||"기타")===selectedStockBrand && (p.category||"기타")===selectedStockCategory)
+                ? withStock.filter(p=>(p.brand||"기타")===selectedStockBrand && (p.category||"신발")===selectedStockCategory)
                 : withStock;
 
               return (<>
